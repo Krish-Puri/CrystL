@@ -9,13 +9,13 @@ interface ReflectDrawerProps {
   onClose: () => void;
   reflections?: Reflection[];
   themeTrends?: ThemeTrendEntry[];
-  onGroundingOpen?: () => void;
+  onGroundingOpen?: (exerciseId: string) => void;
 }
 
 const GROUNDING_EXERCISES = [
-  { id: "breathing", label: "Breathing exercise", desc: "4-7-8 breathing" },
+  { id: "breathing", label: "Box Breathing", desc: "4-4-4-4 breathing" },
   { id: "54321", label: "5-4-3-2-1", desc: "Ground your senses" },
-  { id: "body-scan", label: "Body scan", desc: "Release tension" },
+  { id: "body_scan", label: "Body Scan", desc: "Release tension" },
 ];
 
 export function ReflectDrawer({
@@ -154,7 +154,7 @@ export function ReflectDrawer({
                   {GROUNDING_EXERCISES.map((ex) => (
                     <button
                       key={ex.id}
-                      onClick={onGroundingOpen}
+                      onClick={() => onGroundingOpen?.(ex.id)}
                       className="
                         flex items-center gap-3 p-3 rounded-xl
                         bg-surface-1 border border-border

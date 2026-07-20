@@ -6,14 +6,22 @@ interface MicOrbProps {
   onClick: () => void;
   size?: number;
   disabled?: boolean;
+  isListening?: boolean;
 }
 
-export function MicOrb({ onClick, size = 88, disabled = false }: MicOrbProps) {
+export function MicOrb({ onClick, size = 88, disabled = false, isListening = false }: MicOrbProps) {
   return (
     <motion.button
       whileHover={{ scale: disabled ? 1 : 1.05 }}
       whileTap={{ scale: disabled ? 1 : 0.95 }}
-      transition={{ duration: 0.15 }}
+      animate={isListening ? {
+        scale: [1, 1.04, 1],
+      } : {}}
+      transition={isListening ? {
+        duration: 2,
+        repeat: Infinity,
+        ease: "easeInOut",
+      } : { duration: 0.15 }}
       onClick={disabled ? undefined : onClick}
       disabled={disabled}
       aria-label="Hold to speak"
@@ -24,9 +32,29 @@ export function MicOrb({ onClick, size = 88, disabled = false }: MicOrbProps) {
       style={{
         width: size,
         height: size,
-        backgroundColor: "var(--fill-accent)",
+        backgroundColor: isListening ? "var(--fill-accent-light, #4a9eff)" : "var(--fill-accent)",
       }}
     >
+      {isListening && (
+        <motion.circle
+          cx={size / 2}
+          cy={size / 2}
+          r={size / 2 - 4}
+          fill="none"
+          stroke="var(--on-accent)"
+          strokeWidth={2}
+          opacity={0}
+          animate={{
+            opacity: [0, 0.5, 0],
+            scale: [1, 1.5, 1.5],
+          }}
+          transition={{
+            duration: 1.5,
+            repeat: Infinity,
+            ease: "easeOut",
+          }}
+        />
+      )}
       {/* Microphone icon */}
       <svg
         width={size * 0.36}

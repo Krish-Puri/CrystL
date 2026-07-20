@@ -31,6 +31,7 @@ interface AppStore {
   reflectOpen: boolean;
   hasEnded: boolean; // session has been closed, showing reflection draft
   reflectionDraft: ReflectionDraft | null;
+  lastMemory: string | null;
 }
 
 // Initial state
@@ -47,6 +48,7 @@ const initialState: AppStore = {
   reflectOpen: false,
   hasEnded: false,
   reflectionDraft: null,
+  lastMemory: null,
 };
 
 // ── Actions ──────────────────────────────────────────────────────────────────
@@ -68,7 +70,8 @@ type AppAction =
   | { type: "UPDATE_REFLECTION_DRAFT"; draft: ReflectionDraft }
   | { type: "END_SESSION" }
   | { type: "SET_LOADING"; loading: boolean }
-  | { type: "SET_ERROR"; error: string | null };
+  | { type: "SET_ERROR"; error: string | null }
+  | { type: "SET_LAST_MEMORY"; memory: string | null };
 
 // ── Reducer ──────────────────────────────────────────────────────────────────
 
@@ -135,6 +138,9 @@ function reducer(state: AppStore, action: AppAction): AppStore {
 
     case "SET_ERROR":
       return { ...state, error: action.error };
+
+    case "SET_LAST_MEMORY":
+      return { ...state, lastMemory: action.memory };
 
     default:
       return state;

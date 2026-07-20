@@ -36,8 +36,9 @@ export function useSession() {
           const memRes = await fetch("/api/memory/recent");
           if (memRes.ok) {
             const memData = await memRes.json();
-            // Memory is available in session.memory_summary — the greeting
-            // component will pick it up via state.isFirst
+            if (memData.memory?.memory_summary) {
+              dispatch({ type: "SET_LAST_MEMORY", memory: memData.memory.memory_summary });
+            }
           }
         }
       } catch {

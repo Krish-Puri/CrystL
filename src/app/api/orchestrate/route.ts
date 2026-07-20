@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     // ── Auth: verify user owns the session ─────────────────────────────
     const { data: session } = await sb
       .from("sessions")
-      .select("user_id, memory_summary, theme")
+      .select("user_id, memory_summary, theme, personality_version")
       .eq("id", session_id)
       .eq("user_id", authedUserId)
       .single();
@@ -81,6 +81,7 @@ export async function POST(req: NextRequest) {
         phase: state.conversation_phase ?? "explore",
         episodicMemory,
         semanticMemory,
+        personalityVersion: session.personality_version ?? 1,
       });
     } else {
       // No keyword — run orchestrator directly
@@ -90,6 +91,7 @@ export async function POST(req: NextRequest) {
         phase: state.conversation_phase ?? "explore",
         episodicMemory,
         semanticMemory,
+        personalityVersion: session.personality_version ?? 1,
       });
     }
 
@@ -120,7 +122,7 @@ export async function POST(req: NextRequest) {
         phase: state.conversation_phase,
         is_safety_trigger: true,
         decision: {
-          open_safety: true,
+          open_safety: decision.ui.open_safety,
           show_reflection: false,
           open_grounding: false,
         },

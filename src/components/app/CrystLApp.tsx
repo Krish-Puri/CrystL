@@ -12,6 +12,7 @@ import { ConversationModePicker } from "@/components/chat/ConversationModePicker
 import { ReflectDrawer } from "@/components/reflect/ReflectDrawer";
 import { ReflectionDraftSheet } from "@/components/reflect/ReflectionDraftSheet";
 import { SafetyOverlay } from "@/components/safety/SafetyOverlay";
+import { GroundingExercise } from "@/components/reflect/GroundingExercise";
 import { useSpeechToText } from "@/hooks/useSpeechToText";
 import { useAppState, useAppDispatch, useConversation } from "@/context/AppContext";
 import { useSession } from "@/hooks/useSession";
@@ -31,6 +32,7 @@ export function CrystLApp() {
 
   // Grounding exercise
   const [showGrounding, setShowGrounding] = useState(false);
+  const [groundingExercise, setGroundingExercise] = useState<string | undefined>();
 
   // Reflect drawer (for journal access)
   const [reflectOpen, setReflectOpen] = useState(false);
@@ -226,10 +228,10 @@ export function CrystLApp() {
                 >
                   <SessionGreeting
                     variant={isFirst ? "first" : "returning"}
-                    lastTheme={null}
+                    lastTheme={state.lastMemory}
                     onMoodSelect={handleMoodSelect}
                     onStartFresh={() => dispatch({ type: "START_SESSION", session_id: state.sessionId ?? "", is_first: true })}
-                    onPickUp={() => {}}
+                    onPickUp={() => { dispatch({ type: "SET_MODE", mode: state.mode ?? "default" }); }}
                   />
                 </motion.div>
               ) : (
@@ -320,7 +322,7 @@ export function CrystLApp() {
       {/* Grounding exercise modal */}
       <AnimatePresence>
         {showGrounding && (
-          <GroundingModal onClose={() => setShowGrounding(false)} />
+          <GroundingExercise onClose={() => setShowGrounding(false)} initialExercise={groundingExercise} />
         )}
       </AnimatePresence>
 
@@ -330,7 +332,10 @@ export function CrystLApp() {
         onClose={() => setReflectOpen(false)}
         reflections={reflections}
         themeTrends={themeTrends}
-        onGroundingOpen={() => setShowGrounding(true)}
+        onGroundingOpen={(exerciseId) => {
+          setGroundingExercise(exerciseId);
+          setShowGrounding(true);
+        }}
       />
 
       {/* Reflection draft sheet — shown after session ends */}
@@ -346,53 +351,3 @@ export function CrystLApp() {
   );
 }
 
-// ── Grounding Modal (simple inline component) ───────────────────────────────
-
-import { type ReactNode } from "react";
-
-function GroundingModal({ onClose }: { onClose: () => void }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={onClose}
-    >
-      <motion.div
-        initial={{ scale: 0.95, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        exit={{ scale: 0.95, opacity: 0 }}
-        className="w-full max-w-sm rounded-2xl bg-surface-1 p-6 flex flex-col gap-5"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-base font-semibold text-foreground">Grounding</h2>
-
-        {/* 5-4-3-2-1 exercise */}
-        <div className="flex flex-col gap-3">
-          <p className="text-sm font-medium text-foreground">Notice 5 things around you</p>
-          <div className="grid grid-cols-5 gap-2">
-            {["5", "4", "3", "2", "1"].map((n) => (
-              <button
-                key={n}
-                className="h-10 rounded-lg border border-border bg-surface-2 text-sm font-medium text-foreground hover:border-border-strong transition-colors cursor-pointer"
-              >
-                {n}
-              </button>
-            ))}
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Look around and name 5 things you can see. Then 4 you can touch. Keep going.
-          </p>
-        </div>
-
-        <button
-          onClick={onClose}
-          className="w-full py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity cursor-pointer"
-        >
-          Done
-        </button>
-      </motion.div>
-    </motion.div>
-  );
-}

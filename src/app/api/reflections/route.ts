@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer, getUser } from "@/lib/supabase/server";
 
+function slugToDisplay(slug: string): string {
+  return slug
+    .split("-")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { userId } = await getUser();
@@ -39,6 +46,16 @@ export async function POST(req: NextRequest) {
     const sb = await supabaseServer();
     const body = await req.json();
     const { session_id, content, theme_slug, mood, next_step } = body;
+
+    // Auto-insert theme into normalized lookup table if not already present
+    if (theme_slug) {
+      await sb
+        .from("themes")
+        .upsert(
+          { slug: theme_slug, display_name: slugToDisplay(theme_slug) },
+          { onConflict: "slug", ignoreDuplicates: true }
+        );
+    }
 
     // Insert confirmed reflection
     const { data: reflection, error } = await sb

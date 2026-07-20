@@ -8,6 +8,7 @@ import {
   ReflectionDraftSchema,
 } from "./schemas";
 import type { ConversationDecision } from "./schemas";
+import { getPersona } from "./prompts/personality.v1";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY!;
 const GEMINI_MODEL = process.env.GEMINI_MODEL ?? "gemini-2.0-flash";
@@ -103,17 +104,17 @@ Respond with ONLY valid JSON:
 
 export async function classifySafety(
   message: string
-): Promise<{ level: 0 | 1 | 2; reason: string }> {
+): Promise<{ level: 0 | 1 | 2; reason: string; latency_ms: number; model: string; operation: "safety" }> {
   const prompt = SAFETY_PROMPT.replace("{message}", message);
-  const { text } = await callGemini(prompt, 0.1, 64);
+  const { text, latency_ms } = await callGemini(prompt, 0.1, 64);
   const extracted = extractJSON(text);
 
   const result = SafetyEvaluationSchema.safeParse(JSON.parse(extracted));
-  if (result.success) return { level: result.data.level as 0 | 1 | 2, reason: result.data.reason ?? "" };
+  if (result.success) return { level: result.data.level as 0 | 1 | 2, reason: result.data.reason ?? "", latency_ms, model: GEMINI_MODEL, operation: "safety" };
 
   // Fallback on parse failure — be conservative
   console.error("[classifySafety] parse failed, defaulting to level 0:", result.error?.message);
-  return { level: 0, reason: "parse error" };
+  return { level: 0, reason: "parse error", latency_ms, model: GEMINI_MODEL, operation: "safety" };
 }
 
 // ── Prompt helpers ──────────────────────────────────────────────────────────
@@ -132,54 +133,6 @@ function modeInstruction(mode: string): string {
 }
 
 // ── Orchestrator ────────────────────────────────────────────────────────────
-
-const ORCHESTRATOR_PROMPT = `You are CrystL, a calm, warm emotional support companion.
-You are NOT a therapist, NOT a chatbot. You are a thoughtful, unhurried presence.
-
-RESPONSE RULES:
-- Keep responses to 2-4 sentences max
-- Use short sentences, no lists, no platitudes
-- Never say "I understand" (too generic — reflect the specific thing shared instead)
-- Never say "You should..." or "You need to..."
-- Never minimize ("It's not that bad!") or silver-line ("At least…")
-- Never diagnose or use clinical language
-- If the user is silent or hesitant: acknowledge simply, do not push
-
-CONVERSATION MODE:
-{mode_instruction}
-
-CONVERSATION PHASE: {phase}
-- "checkin": Session just started. Brief, warm greeting response.
-- "explore": Main body of the conversation. Respond to what was shared.
-- "clarify": You need one piece of information to understand better.
-- "support": User has asked for help or is struggling. Offer one micro-suggestion.
-- "reflection": Session is closing. Summarize briefly and offer a reflection.
-
-MEMORY:
-{episodic_memory}
-{semantic_memory}
-
-User message: """{message}"""
-
-Respond with ONLY valid JSON (no markdown, no explanation):
-{
-  "ai": {
-    "response": "your response to the user (2-4 sentences max)",
-    "intent": "vent|reflection|advice|grounding|checkin|context|pause",
-    "suggested_phase": "checkin|explore|clarify|support|reflection|close"
-  },
-  "ui": {
-    "show_reflection": false|true,
-    "open_safety": false|true,
-    "open_grounding": false|true
-  },
-  "persistence": {
-    "update_theme": "short theme label or null",
-    "update_mood": "calm|okay|low|sad|overwhelmed|null",
-    "end_session": false|true
-  },
-  "safety_level": 0|1|2
-}`;
 
 /**
  * Call the orchestrator with up to `maxRetries` on parse failure.
@@ -222,10 +175,12 @@ export async function runOrchestrator(params: {
   phase: string;
   episodicMemory: string | null;
   semanticMemory: string | null;
+  personalityVersion: number;
 }): Promise<ConversationDecision> {
-  const { message, mode, phase, episodicMemory, semanticMemory } = params;
+  const { message, mode, phase, episodicMemory, semanticMemory, personalityVersion } = params;
 
-  const prompt = ORCHESTRATOR_PROMPT
+  const systemPrompt = getPersona(personalityVersion);
+  const prompt = systemPrompt
     .replace("{mode_instruction}", modeInstruction(mode))
     .replace("{phase}", phase)
     .replace(
@@ -261,16 +216,16 @@ Generate a reflection card for this conversation. Return ONLY valid JSON:
 
 export async function generateReflection(
   conversation: string
-): Promise<{ content: string; theme_slug: string; next_step: string | null }> {
+): Promise<{ content: string; theme_slug: string; next_step: string | null; latency_ms: number; model: string; operation: "reflection" }> {
   const prompt = REFLECTION_PROMPT.replace("{conversation}", conversation);
-  const { text } = await callGemini(prompt, 0.5, 256);
+  const { text, latency_ms } = await callGemini(prompt, 0.5, 256);
   const extracted = extractJSON(text);
 
   const result = ReflectionDraftSchema.safeParse(JSON.parse(extracted));
-  if (result.success) return result.data;
+  if (result.success) return { ...result.data, latency_ms, model: GEMINI_MODEL, operation: "reflection" as const };
 
   console.error("[generateReflection] parse failed:", result.error?.message);
-  return { content: "A meaningful conversation took place.", theme_slug: "general", next_step: null };
+  return { content: "A meaningful conversation took place.", theme_slug: "general", next_step: null, latency_ms, model: GEMINI_MODEL, operation: "reflection" as const };
 }
 
 // ── Episodic summary generation ─────────────────────────────────────────────
@@ -282,10 +237,17 @@ Do not include advice. Format as a single paragraph.
 Conversation:
 {conversation}`;
 
-export async function generateEpisodicSummary(conversation: string): Promise<string> {
+export async function generateEpisodicSummary(
+  conversation: string
+): Promise<{ summary: string; latency_ms: number; model: string; operation: "summary" }> {
   const prompt = EPISODIC_SUMMARY_PROMPT.replace("{conversation}", conversation);
-  const { text } = await callGemini(prompt, 0.3, 128);
-  return text.trim() || "A meaningful conversation took place.";
+  const { text, latency_ms } = await callGemini(prompt, 0.3, 128);
+  return {
+    summary: text.trim() || "A meaningful conversation took place.",
+    latency_ms,
+    model: GEMINI_MODEL,
+    operation: "summary",
+  };
 }
 
 // ── AI Usage logging helper ─────────────────────────────────────────────────

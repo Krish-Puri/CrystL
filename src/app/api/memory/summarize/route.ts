@@ -42,18 +42,16 @@ export async function POST(req: NextRequest) {
       .join("\n");
 
     // Generate episodic summary + reflection draft in parallel
-    const startTime = Date.now();
-    const [episodicSummary, reflectionData] = await Promise.all([
+    const [episodicResult, reflectionResult] = await Promise.all([
       generateEpisodicSummary(conversation),
       generateReflection(conversation),
     ]);
-    const latency_ms = Date.now() - startTime;
 
     // Update session with episodic memory and mark inactive
     await sb
       .from("sessions")
       .update({
-        memory_summary: episodicSummary,
+        memory_summary: episodicResult.summary,
         ended_at: new Date().toISOString(),
         is_active: false,
       })
@@ -65,10 +63,10 @@ export async function POST(req: NextRequest) {
       .insert({
         session_id,
         user_id: userId,
-        content: reflectionData.content,
-        theme_slug: reflectionData.theme_slug,
+        content: reflectionResult.content,
+        theme_slug: reflectionResult.theme_slug,
         mood: (session.mood_at_start as string) ?? "okay",
-        next_step: reflectionData.next_step,
+        next_step: reflectionResult.next_step,
       })
       .select()
       .single();
@@ -79,9 +77,19 @@ export async function POST(req: NextRequest) {
     await sb.from("ai_usage").insert({
       user_id: userId,
       session_id,
-      model: process.env.GEMINI_MODEL ?? "gemini-2.0-flash",
+      model: reflectionResult.model,
       operation: "reflection",
-      latency_ms,
+      latency_ms: reflectionResult.latency_ms,
+      success: true,
+    });
+
+    // Log ai_usage for summary generation
+    await sb.from("ai_usage").insert({
+      user_id: userId,
+      session_id,
+      model: episodicResult.model,
+      operation: "summary",
+      latency_ms: episodicResult.latency_ms,
       success: true,
     });
 
@@ -94,7 +102,7 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json({
-      episodic_summary: episodicSummary,
+      episodic_summary: episodicResult.summary,
       draft: {
         id: draft.id,
         content: draft.content,
