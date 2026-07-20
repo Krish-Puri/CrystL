@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseServer, getUser } from "@/lib/supabase/server";
 
 export async function GET(req: NextRequest) {
   try {
+    const { userId } = await getUser();
     const sb = await supabaseServer();
-    const userId = req.nextUrl.searchParams.get("user_id");
     const theme = req.nextUrl.searchParams.get("theme");
     const limit = parseInt(req.nextUrl.searchParams.get("limit") ?? "20");
     const offset = parseInt(req.nextUrl.searchParams.get("offset") ?? "0");
-
-    if (!userId) return NextResponse.json({ error: "Missing user_id" }, { status: 400 });
 
     let query = sb
       .from("reflections")
@@ -27,20 +25,24 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ reflections: data });
   } catch (err) {
-    console.error("[GET /api/reflections]", err);
+    if (err instanceof Error && err.message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    console.error("[GET /api/reflections]", err instanceof Error ? err.message : String(err));
     return NextResponse.json({ error: "Failed to fetch reflections" }, { status: 500 });
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
+    const { userId } = await getUser();
     const sb = await supabaseServer();
     const body = await req.json();
-    const { session_id, content, theme, mood, next_step, user_id } = body;
+    const { session_id, content, theme, mood, next_step } = body;
 
     const { data: reflection, error } = await sb
       .from("reflections")
-      .insert({ session_id, content, theme, mood, next_step, user_id })
+      .insert({ session_id, content, theme, mood, next_step, user_id: userId })
       .select()
       .single();
 
@@ -55,7 +57,7 @@ export async function POST(req: NextRequest) {
     const { data: existing } = await sb
       .from("theme_trends")
       .select("*")
-      .eq("user_id", user_id)
+      .eq("user_id", userId)
       .eq("theme", theme)
       .single();
 
@@ -70,7 +72,7 @@ export async function POST(req: NextRequest) {
         .eq("id", existing.id);
     } else {
       await sb.from("theme_trends").insert({
-        user_id,
+        user_id: userId,
         theme,
         conversation_count: 1,
         trend: "new",
@@ -88,7 +90,10 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ reflection });
   } catch (err) {
-    console.error("[POST /api/reflections]", err);
+    if (err instanceof Error && err.message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    console.error("[POST /api/reflections]", err instanceof Error ? err.message : String(err));
     return NextResponse.json({ error: "Failed to save reflection" }, { status: 500 });
   }
 }

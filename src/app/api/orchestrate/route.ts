@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseServer, getUser } from "@/lib/supabase/server";
 import { containsSafetyKeyword } from "@/lib/safety";
 import { runOrchestrator } from "@/lib/gemini";
 import type { ConversationDecision } from "@/lib/schemas";
@@ -11,6 +11,14 @@ export async function POST(req: NextRequest) {
   let user_id: string | undefined;
 
   try {
+    // ── Auth: get authenticated user ─────────────────────────────────
+    let authedUserId: string;
+    try {
+      ({ userId: authedUserId } = await getUser());
+    } catch {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const sb = await supabaseServer();
     const body = await req.json();
     const { session_id, transcript, is_pause } = body;
@@ -24,6 +32,7 @@ export async function POST(req: NextRequest) {
       .from("sessions")
       .select("user_id, memory_summary, theme")
       .eq("id", session_id)
+      .eq("user_id", authedUserId)
       .single();
 
     if (!session) {

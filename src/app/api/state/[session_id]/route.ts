@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseServer, getUser } from "@/lib/supabase/server";
 
 export async function GET(
   _req: NextRequest,
@@ -7,7 +7,20 @@ export async function GET(
 ) {
   const { session_id } = await params;
   try {
+    const { userId } = await getUser();
     const sb = await supabaseServer();
+
+    // Verify ownership via session
+    const { data: session } = await sb
+      .from("sessions")
+      .select("user_id")
+      .eq("id", session_id)
+      .single();
+
+    if (!session || session.user_id !== userId) {
+      return NextResponse.json({ error: "State not found" }, { status: 404 });
+    }
+
     const { data, error } = await sb
       .from("conversation_states")
       .select("*")
@@ -17,7 +30,10 @@ export async function GET(
     if (error) throw error;
     return NextResponse.json(data);
   } catch (err) {
-    console.error("[GET /api/state/:session_id]", err);
+    if (err instanceof Error && err.message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    console.error("[GET /api/state/:session_id]", err instanceof Error ? err.message : String(err));
     return NextResponse.json({ error: "State not found" }, { status: 404 });
   }
 }
@@ -28,8 +44,20 @@ export async function PATCH(
 ) {
   const { session_id } = await params;
   try {
+    const { userId } = await getUser();
     const sb = await supabaseServer();
     const body = await req.json();
+
+    // Verify ownership
+    const { data: session } = await sb
+      .from("sessions")
+      .select("user_id")
+      .eq("id", session_id)
+      .single();
+
+    if (!session || session.user_id !== userId) {
+      return NextResponse.json({ error: "State not found" }, { status: 404 });
+    }
 
     const allowed = [
       "current_mood",
@@ -58,7 +86,10 @@ export async function PATCH(
     if (error) throw error;
     return NextResponse.json(data);
   } catch (err) {
-    console.error("[PATCH /api/state/:session_id]", err);
+    if (err instanceof Error && err.message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    console.error("[PATCH /api/state/:session_id]", err instanceof Error ? err.message : String(err));
     return NextResponse.json({ error: "Failed to update state" }, { status: 500 });
   }
 }

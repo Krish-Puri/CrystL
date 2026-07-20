@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseServer, getUser } from "@/lib/supabase/server";
 
 export async function POST(req: NextRequest) {
   try {
+    const { userId } = await getUser();
     const sb = await supabaseServer();
     const body = await req.json();
-    const { user_id, mood_at_start, mode } = body;
+    const { mood_at_start, mode } = body;
 
-    // Create session
+    // Create session — user_id comes from auth, not the request body
     const { data: session, error } = await sb
       .from("sessions")
-      .insert({ user_id, mood_at_start, is_active: true })
+      .insert({ user_id: userId, mood_at_start, is_active: true })
       .select()
       .single();
 
@@ -25,25 +26,26 @@ export async function POST(req: NextRequest) {
       message_count: 0,
     });
 
-    // Check if this is the user's first session
+    // Check if this is the user's first session (count=1 after insert = first)
     const { count } = await sb
       .from("sessions")
       .select("*", { count: "exact", head: true })
-      .eq("user_id", user_id)
+      .eq("user_id", userId)
       .eq("is_active", true);
 
     return NextResponse.json({
       session_id: session.id,
-      is_first_session: (count ?? 0) <= 1,
+      is_first_session: (count ?? 0) === 1,
     });
   } catch (err) {
-    console.error("[POST /api/session]", err);
+    console.error("[POST /api/session]", err instanceof Error ? err.message : String(err));
     return NextResponse.json({ error: "Failed to create session" }, { status: 500 });
   }
 }
 
 export async function GET(req: NextRequest) {
   try {
+    const { userId } = await getUser();
     const sb = await supabaseServer();
     const sessionId = req.nextUrl.searchParams.get("session_id");
     if (!sessionId) return NextResponse.json({ error: "Missing session_id" }, { status: 400 });
@@ -52,7 +54,10 @@ export async function GET(req: NextRequest) {
       .from("sessions")
       .select("*")
       .eq("id", sessionId)
+      .eq("user_id", userId)
       .single();
+
+    if (!session) return NextResponse.json({ error: "Session not found" }, { status: 404 });
 
     const { data: state } = await sb
       .from("conversation_states")
@@ -62,7 +67,10 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ session, state });
   } catch (err) {
-    console.error("[GET /api/session]", err);
+    if (err instanceof Error && err.message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    console.error("[GET /api/session]", err instanceof Error ? err.message : String(err));
     return NextResponse.json({ error: "Failed to fetch session" }, { status: 500 });
   }
 }

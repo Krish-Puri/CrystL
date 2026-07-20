@@ -9,7 +9,7 @@ interface ReflectDrawerProps {
   onClose: () => void;
   reflections?: Reflection[];
   themeTrends?: ThemeTrendEntry[];
-  onGroundingExercise?: (type: string) => void;
+  onGroundingOpen?: () => void;
 }
 
 const GROUNDING_EXERCISES = [
@@ -23,7 +23,7 @@ export function ReflectDrawer({
   onClose,
   reflections = [],
   themeTrends = [],
-  onGroundingExercise,
+  onGroundingOpen,
 }: ReflectDrawerProps) {
   // Close on Escape
   useEffect(() => {
@@ -154,7 +154,7 @@ export function ReflectDrawer({
                   {GROUNDING_EXERCISES.map((ex) => (
                     <button
                       key={ex.id}
-                      onClick={() => onGroundingExercise?.(ex.id)}
+                      onClick={onGroundingOpen}
                       className="
                         flex items-center gap-3 p-3 rounded-xl
                         bg-surface-1 border border-border

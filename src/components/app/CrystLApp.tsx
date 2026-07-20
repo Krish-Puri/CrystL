@@ -12,45 +12,15 @@ import { ConversationModePicker } from "@/components/chat/ConversationModePicker
 import { ReflectDrawer } from "@/components/reflect/ReflectDrawer";
 import { SafetyOverlay } from "@/components/safety/SafetyOverlay";
 import { useSpeechToText } from "@/hooks/useSpeechToText";
-import type {
-  AppState,
-  ConversationMode,
-  Message,
-  Mood,
-  Reflection,
-  ThemeTrendEntry,
-} from "@/types";
-
-// Demo messages for the visual prototype
-const DEMO_MESSAGES: Message[] = [
-  {
-    id: "1",
-    session_id: "demo",
-    role: "user",
-    content:
-      "I don't think I can handle tomorrow's presentation. I feel like I'm failing at everything.",
-    intent: "vent",
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: "2",
-    session_id: "demo",
-    role: "assistant",
-    content:
-      "I hear you.\n\nIt sounds like tomorrow feels bigger than the presentation itself.\n\nOne small thing you could try: write just the opening line you'd say tomorrow.",
-    intent: "vent",
-    created_at: new Date().toISOString(),
-  },
-];
+import { useAppState, useAppDispatch, useConversation } from "@/context/AppContext";
+import { useSession } from "@/hooks/useSession";
+import type { Mood, ConversationMode, Reflection, ThemeTrendEntry } from "@/types";
 
 export function CrystLApp() {
-  // App state
-  const [appState, setAppState] = useState<AppState>("chat");
-  const [sessionVariant, setSessionVariant] = useState<"first" | "returning">("first");
-  const [selectedMood, setSelectedMood] = useState<Mood | null>(null);
-  const [mode, setMode] = useState<ConversationMode | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [showModePicker, setShowModePicker] = useState(false);
+  const state = useAppState();
+  const dispatch = useAppDispatch();
+  const { setMood, setMode, isFirst } = useSession();
+  const { sendMessage, endSession } = useConversation();
 
   // Recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -58,10 +28,13 @@ export function CrystLApp() {
   const [elapsedTime, setElapsedTime] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Reflect drawer
+  // Grounding exercise
+  const [showGrounding, setShowGrounding] = useState(false);
+
+  // Reflect drawer (for journal access)
   const [reflectOpen, setReflectOpen] = useState(false);
 
-  // Demo data
+  // Demo reflections/trends (placeholder — loaded from API in full version)
   const [reflections] = useState<Reflection[]>([]);
   const [themeTrends] = useState<ThemeTrendEntry[]>([]);
 
@@ -75,7 +48,8 @@ export function CrystLApp() {
       },
     });
 
-  // Start recording
+  // ── Recording ─────────────────────────────────────────────────────────────
+
   function handleMicClick() {
     if (isRecording) {
       stopListening();
@@ -92,118 +66,99 @@ export function CrystLApp() {
     }
   }
 
-  // Send from recording panel
-  function handleSend() {
+  // ── Send from recording panel ──────────────────────────────────────────────
+
+  async function handleSend() {
     if (!transcript.trim()) return;
     setIsRecording(false);
     stopListening();
     if (timerRef.current) clearInterval(timerRef.current);
-    setAppState("chat");
-    // Add user message
-    const userMsg: Message = {
-      id: Date.now().toString(),
-      session_id: "demo",
-      role: "user",
-      content: transcript,
-      intent: null,
-      created_at: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, userMsg]);
+    dispatch({ type: "CLOSE_RECORDING" });
     setTranscript("");
-    // Simulate AI response after delay
-    setTimeout(() => {
-      const aiMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        session_id: "demo",
-        role: "assistant",
-        content:
-          "I hear you.\n\nIt sounds like tomorrow feels bigger than the presentation itself.\n\nOne small thing you could try: write just the opening line you'd say tomorrow.",
-        intent: "vent",
-        created_at: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, aiMsg]);
-    }, 1200);
+    await sendMessage(transcript);
   }
 
-  // Mood selection
+  // ── Mood selection ─────────────────────────────────────────────────────────
+
   function handleMoodSelect(mood: Mood) {
-    setSelectedMood(mood);
-    // Proceed to mode picker after mood
-    setTimeout(() => setShowModePicker(true), 600);
+    setMood(mood);
+    setTimeout(() => dispatch({ type: "OPEN_RECORDING" }), 300);
   }
 
-  // Mode selection
-  function handleModeSelect(selectedMode: ConversationMode) {
-    setMode(selectedMode);
-    setShowModePicker(false);
+  // ── Mode selection ─────────────────────────────────────────────────────────
+
+  function handleModeSelect(mode: ConversationMode) {
+    setMode(mode);
+    dispatch({ type: "CLOSE_RECORDING" });
   }
 
-  // Switching app states (demo)
-  function switchState(state: AppState) {
-    setAppState(state);
+  // ── End session ─────────────────────────────────────────────────────────────
+
+  function handleEndSession() {
+    endSession();
   }
 
-  const showChat = appState === "chat";
-  const showRecording = appState === "recording";
-  const showSafety = appState === "safety";
+  // ── Derived state ──────────────────────────────────────────────────────────
+
+  const showChat = state.appState === "chat";
+  const showRecording = state.appState === "recording";
+  const showSafety = state.appState === "safety";
+  const showModePicker = state.mode === null;
+  const hasMessages = state.messages.length > 0;
+  const isLoading = state.isLoading;
 
   return (
     <>
-      {/* Main app shell */}
       <div
         className="relative flex flex-col"
         style={{ height: "620px", backgroundColor: "var(--surface-2)" }}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-8 pt-5 pb-2">
-          <div className="flex gap-1.5">
-            <button
-              className={`session-btn text-xs px-3 py-1.5 rounded-full border cursor-pointer transition-colors ${
-                sessionVariant === "first"
-                  ? "active bg-surface-1 border-border-strong"
-                  : "bg-transparent border-border hover:border-border-strong"
-              }`}
-              onClick={() => setSessionVariant("first")}
-            >
-              First session
-            </button>
-            <button
-              className={`session-btn text-xs px-3 py-1.5 rounded-full border cursor-pointer transition-colors ${
-                sessionVariant === "returning"
-                  ? "active bg-surface-1 border-border-strong"
-                  : "bg-transparent border-border hover:border-border-strong"
-              }`}
-              onClick={() => setSessionVariant("returning")}
-            >
-              Returning
-            </button>
+          {/* Session info */}
+          <div className="flex items-center gap-2">
+            {state.sessionId && (
+              <span className="text-xs text-muted-foreground">
+                {isFirst ? "First session" : "Returning"}
+              </span>
+            )}
           </div>
 
-          {/* Reflect trigger */}
-          <button
-            onClick={() => setReflectOpen(true)}
-            aria-label="Reflect tools"
-            className="
-              w-8 h-8 rounded-full flex items-center justify-center
-              hover:bg-surface-1 transition-colors cursor-pointer
-            "
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+          {/* Right side: End session + Reflect */}
+          <div className="flex items-center gap-2">
+            {hasMessages && !state.hasEnded && (
+              <button
+                onClick={handleEndSession}
+                className="text-xs px-3 py-1.5 rounded-full border border-border hover:border-border-strong transition-colors text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                End session
+              </button>
+            )}
+            <button
+              onClick={() => setReflectOpen(true)}
+              aria-label="Reflect tools"
+              className="
+                w-8 h-8 rounded-full flex items-center justify-center
+                hover:bg-surface-1 transition-colors cursor-pointer
+              "
             >
-              <rect x="3" y="3" width="7" height="7" />
-              <rect x="14" y="3" width="7" height="7" />
-              <rect x="14" y="14" width="7" height="7" />
-              <rect x="3" y="14" width="7" height="7" />
-            </svg>
-          </button>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <rect x="3" y="3" width="7" height="7" />
+                <rect x="14" y="3" width="7" height="7" />
+                <rect x="14" y="14" width="7" height="7" />
+                <rect x="3" y="14" width="7" height="7" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Chat panel */}
@@ -211,8 +166,6 @@ export function CrystLApp() {
           <div className="flex-1 overflow-hidden flex flex-col px-8 pt-3 pb-2">
             <AnimatePresence mode="wait">
               {showModePicker ? (
-                <ConversationModePicker onSelect={handleModeSelect} />
-              ) : messages.length === 0 ? (
                 <motion.div
                   key="greeting"
                   initial={{ opacity: 0 }}
@@ -221,10 +174,10 @@ export function CrystLApp() {
                   className="py-1.5"
                 >
                   <SessionGreeting
-                    variant={sessionVariant}
-                    lastTheme="preparing for a presentation"
+                    variant={isFirst ? "first" : "returning"}
+                    lastTheme={null}
                     onMoodSelect={handleMoodSelect}
-                    onStartFresh={() => setSessionVariant("first")}
+                    onStartFresh={() => dispatch({ type: "START_SESSION", session_id: state.sessionId ?? "", is_first: true })}
                     onPickUp={() => {}}
                   />
                 </motion.div>
@@ -236,23 +189,46 @@ export function CrystLApp() {
                   exit={{ opacity: 0 }}
                   className="flex-1 overflow-y-auto flex flex-col"
                 >
-                  {messages.map((msg) =>
+                  {isLoading && (
+                    <div className="flex items-center gap-2 px-4 py-3">
+                      <div className="w-2 h-2 rounded-full bg-muted-foreground/40 animate-bounce" style={{ animationDelay: "0ms" }} />
+                      <div className="w-2 h-2 rounded-full bg-muted-foreground/40 animate-bounce" style={{ animationDelay: "150ms" }} />
+                      <div className="w-2 h-2 rounded-full bg-muted-foreground/40 animate-bounce" style={{ animationDelay: "300ms" }} />
+                    </div>
+                  )}
+                  {state.messages.map((msg) =>
                     msg.role === "user" ? (
                       <UserMessage key={msg.id} content={msg.content} />
                     ) : (
-                      <AIMessage
-                        key={msg.id}
-                        content={msg.content}
-                        showReplay={true}
-                      />
+                      <AIMessage key={msg.id} content={msg.content} showReplay={true} />
                     )
                   )}
                 </motion.div>
               )}
             </AnimatePresence>
 
+            {/* Error banner */}
+            <AnimatePresence>
+              {state.error && (
+                <motion.div
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="mx-auto mb-2 px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-500"
+                >
+                  {state.error}
+                  <button
+                    onClick={() => dispatch({ type: "SET_ERROR", error: null })}
+                    className="ml-2 underline cursor-pointer"
+                  >
+                    Dismiss
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             {/* Bottom mic area */}
-            {!showModePicker && messages.length > 0 && (
+            {!showModePicker && hasMessages && !state.hasEnded && (
               <div className="flex flex-col items-center gap-2 pt-3 pb-1">
                 <MicOrb onClick={handleMicClick} size={72} />
                 <p className="text-xs text-muted-foreground">Hold to speak</p>
@@ -273,7 +249,7 @@ export function CrystLApp() {
               setIsRecording(false);
               stopListening();
               if (timerRef.current) clearInterval(timerRef.current);
-              setAppState("chat");
+              dispatch({ type: "CLOSE_RECORDING" });
             }}
           />
         )}
@@ -281,11 +257,21 @@ export function CrystLApp() {
         {/* Safety panel */}
         {showSafety && (
           <SafetyOverlay
-            onContinueTalking={() => setAppState("chat")}
-            onGrounding={() => setAppState("chat")}
+            onContinueTalking={() => dispatch({ type: "CLOSE_RECORDING" })}
+            onGrounding={() => {
+              dispatch({ type: "CLOSE_RECORDING" });
+              setShowGrounding(true);
+            }}
           />
         )}
       </div>
+
+      {/* Grounding exercise modal */}
+      <AnimatePresence>
+        {showGrounding && (
+          <GroundingModal onClose={() => setShowGrounding(false)} />
+        )}
+      </AnimatePresence>
 
       {/* Reflect drawer */}
       <ReflectDrawer
@@ -293,37 +279,59 @@ export function CrystLApp() {
         onClose={() => setReflectOpen(false)}
         reflections={reflections}
         themeTrends={themeTrends}
+        onGroundingOpen={() => setShowGrounding(true)}
       />
-
-      {/* State switcher (demo/debug) */}
-      <DemoStateSwitcher current={appState} onSwitch={switchState} />
     </>
   );
 }
 
-// Demo-only state switcher for previewing all states
-function DemoStateSwitcher({
-  current,
-  onSwitch,
-}: {
-  current: AppState;
-  onSwitch: (s: AppState) => void;
-}) {
+// ── Grounding Modal (simple inline component) ───────────────────────────────
+
+import { type ReactNode } from "react";
+
+function GroundingModal({ onClose }: { onClose: () => void }) {
   return (
-    <div className="flex items-center gap-2 mt-4 flex-wrap">
-      <span className="text-xs text-muted-foreground">Preview state:</span>
-      {(["chat", "recording", "safety"] as AppState[]).map((s) => (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.95, opacity: 0 }}
+        className="w-full max-w-sm rounded-2xl bg-surface-1 p-6 flex flex-col gap-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="text-base font-semibold text-foreground">Grounding</h2>
+
+        {/* 5-4-3-2-1 exercise */}
+        <div className="flex flex-col gap-3">
+          <p className="text-sm font-medium text-foreground">Notice 5 things around you</p>
+          <div className="grid grid-cols-5 gap-2">
+            {["5", "4", "3", "2", "1"].map((n) => (
+              <button
+                key={n}
+                className="h-10 rounded-lg border border-border bg-surface-2 text-sm font-medium text-foreground hover:border-border-strong transition-colors cursor-pointer"
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Look around and name 5 things you can see. Then 4 you can touch. Keep going.
+          </p>
+        </div>
+
         <button
-          key={s}
-          onClick={() => onSwitch(s)}
-          className={`
-            state-btn text-xs px-3 py-1.5 rounded-full border cursor-pointer transition-colors
-            ${current === s ? "active" : "bg-transparent border-border hover:border-border-strong"}
-          `}
+          onClick={onClose}
+          className="w-full py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity cursor-pointer"
         >
-          {s.charAt(0).toUpperCase() + s.slice(1)}
+          Done
         </button>
-      ))}
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

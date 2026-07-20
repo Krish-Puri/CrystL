@@ -26,6 +26,9 @@ ALTER TABLE theme_trends ADD COLUMN IF NOT EXISTS validated_at TIMESTAMPTZ DEFAU
 -- 5. Add user_id index to safety_events
 CREATE INDEX IF NOT EXISTS idx_safety_events_user ON safety_events(user_id);
 
+-- 6. Add was_regenerated to reflection_feedback
+ALTER TABLE reflection_feedback ADD COLUMN IF NOT EXISTS was_regenerated BOOLEAN DEFAULT false NOT NULL;
+
 -- ─────────────────────────────────────────────────────────────
 -- sessions
 -- ─────────────────────────────────────────────────────────────

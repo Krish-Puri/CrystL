@@ -1,14 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseServer, getUser } from "@/lib/supabase/server";
 import { generateReflection, generateEpisodicSummary } from "@/lib/gemini";
 
 export async function POST(req: NextRequest) {
   try {
+    const { userId } = await getUser();
     const sb = await supabaseServer();
     const { session_id } = await req.json();
 
     if (!session_id) {
       return NextResponse.json({ error: "Missing session_id" }, { status: 400 });
+    }
+
+    // Verify ownership
+    const { data: session } = await sb
+      .from("sessions")
+      .select("user_id")
+      .eq("id", session_id)
+      .single();
+
+    if (!session || session.user_id !== userId) {
+      return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
     // Fetch all messages for this session
@@ -45,7 +57,10 @@ export async function POST(req: NextRequest) {
       reflection: reflectionData,
     });
   } catch (err) {
-    console.error("[POST /api/memory/summarize]", err);
+    if (err instanceof Error && err.message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    console.error("[POST /api/memory/summarize]", err instanceof Error ? err.message : String(err));
     return NextResponse.json({ error: "Summarization failed" }, { status: 500 });
   }
 }
