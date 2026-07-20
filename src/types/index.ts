@@ -122,6 +122,7 @@ export interface ConversationDecision {
 // ── Reflection Draft ───────────────────────────────────────────────────────
 
 export interface ReflectionDraft {
+  id?: string;
   content: string;
   theme_slug: string;
   mood: Mood;
@@ -135,6 +136,7 @@ export type AppAction =
   | { type: "ADD_MESSAGE"; message: Message }
   | { type: "SET_PHASE"; phase: ConversationPhase }
   | { type: "SET_MOOD"; mood: Mood }
+  | { type: "SET_MODE"; mode: ConversationMode }
   | { type: "OPEN_RECORDING" }
   | { type: "CLOSE_RECORDING" }
   | { type: "SHOW_SAFETY" }
@@ -142,6 +144,7 @@ export type AppAction =
   | { type: "SHOW_GROUNDING" }
   | { type: "OPEN_REFLECT" }
   | { type: "CLOSE_REFLECT" }
+  | { type: "CLEAR_REFLECTION_DRAFT" }
   | { type: "END_SESSION" }
   | { type: "SET_LOADING"; loading: boolean }
   | { type: "SET_ERROR"; error: string | null };

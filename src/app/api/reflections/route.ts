@@ -38,27 +38,39 @@ export async function POST(req: NextRequest) {
     const { userId } = await getUser();
     const sb = await supabaseServer();
     const body = await req.json();
-    const { session_id, content, theme, mood, next_step } = body;
+    const { session_id, content, theme_slug, mood, next_step } = body;
 
+    // Insert confirmed reflection
     const { data: reflection, error } = await sb
       .from("reflections")
-      .insert({ session_id, content, theme, mood, next_step, user_id: userId })
+      .insert({
+        session_id,
+        content,
+        theme: theme_slug,
+        mood,
+        next_step,
+        user_id: userId,
+      })
       .select()
       .single();
 
     if (error) throw error;
 
     // Create reflection_feedback row
-    await sb.from("reflection_feedback").insert({
-      reflection_id: reflection.id,
-    });
+    const { data: feedback } = await sb
+      .from("reflection_feedback")
+      .insert({ reflection_id: reflection.id })
+      .select()
+      .single();
+
+    void feedback;
 
     // Update or insert theme_trends
     const { data: existing } = await sb
       .from("theme_trends")
       .select("*")
       .eq("user_id", userId)
-      .eq("theme", theme)
+      .eq("theme", theme_slug)
       .single();
 
     if (existing) {
@@ -73,20 +85,34 @@ export async function POST(req: NextRequest) {
     } else {
       await sb.from("theme_trends").insert({
         user_id: userId,
-        theme,
+        theme: theme_slug,
         conversation_count: 1,
         trend: "new",
         last_mood: mood,
       });
     }
 
-    // Mark reflection as saved in conversation_state
+    // Delete the draft — reflection is now finalized
     if (session_id) {
+      await sb
+        .from("reflection_drafts")
+        .delete()
+        .eq("session_id", session_id)
+        .eq("user_id", userId);
+
       await sb
         .from("conversation_states")
         .update({ last_reflection_saved: true })
         .eq("session_id", session_id);
     }
+
+    // Log reflection_saved event
+    await sb.from("session_events").insert({
+      user_id: userId,
+      session_id,
+      event_type: "reflection_saved",
+      metadata: { theme: theme_slug, was_edited: content !== undefined },
+    });
 
     return NextResponse.json({ reflection });
   } catch (err) {

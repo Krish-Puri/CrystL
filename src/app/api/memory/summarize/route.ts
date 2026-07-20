@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer, getUser } from "@/lib/supabase/server";
 import { generateReflection, generateEpisodicSummary } from "@/lib/gemini";
 
+// POST /api/memory/summarize
+// Ends the session: generates episodic summary, creates reflection_draft, logs session_end
 export async function POST(req: NextRequest) {
   try {
     const { userId } = await getUser();
@@ -15,7 +17,7 @@ export async function POST(req: NextRequest) {
     // Verify ownership
     const { data: session } = await sb
       .from("sessions")
-      .select("user_id")
+      .select("user_id, mood_at_start, current_mood:conversation_states!inner(current_mood)")
       .eq("id", session_id)
       .single();
 
@@ -39,22 +41,67 @@ export async function POST(req: NextRequest) {
       .map((m: { role: string; content: string }) => `${m.role}: ${m.content}`)
       .join("\n");
 
-    // Generate episodic summary + reflection in parallel
+    // Generate episodic summary + reflection draft in parallel
+    const startTime = Date.now();
     const [episodicSummary, reflectionData] = await Promise.all([
       generateEpisodicSummary(conversation),
       generateReflection(conversation),
     ]);
+    const latency_ms = Date.now() - startTime;
 
-    // Update session with episodic memory
+    // Update session with episodic memory and mark inactive
     await sb
       .from("sessions")
-      .update({ memory_summary: episodicSummary, ended_at: new Date().toISOString() })
+      .update({
+        memory_summary: episodicSummary,
+        ended_at: new Date().toISOString(),
+        is_active: false,
+      })
       .eq("id", session_id);
 
-    // Return reflection card for user confirmation
+    // Create reflection_drafts row — AI owns the draft, user owns the final
+    const { data: draft, error: draftError } = await sb
+      .from("reflection_drafts")
+      .insert({
+        session_id,
+        user_id: userId,
+        content: reflectionData.content,
+        theme_slug: reflectionData.theme_slug,
+        mood: (session.mood_at_start as string) ?? "okay",
+        next_step: reflectionData.next_step,
+      })
+      .select()
+      .single();
+
+    if (draftError) throw draftError;
+
+    // Log ai_usage for reflection generation
+    await sb.from("ai_usage").insert({
+      user_id: userId,
+      session_id,
+      model: process.env.GEMINI_MODEL ?? "gemini-2.0-flash",
+      operation: "reflection",
+      latency_ms,
+      success: true,
+    });
+
+    // Log session_end event
+    await sb.from("session_events").insert({
+      user_id: userId,
+      session_id,
+      event_type: "session_end",
+      metadata: { message_count: messages.length },
+    });
+
     return NextResponse.json({
       episodic_summary: episodicSummary,
-      reflection: reflectionData,
+      draft: {
+        id: draft.id,
+        content: draft.content,
+        theme_slug: draft.theme_slug,
+        mood: draft.mood,
+        next_step: draft.next_step,
+      },
     });
   } catch (err) {
     if (err instanceof Error && err.message === "Unauthorized") {

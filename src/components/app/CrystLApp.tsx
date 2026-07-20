@@ -10,6 +10,7 @@ import { MicOrb } from "@/components/voice/MicOrb";
 import { RecordingPanel } from "@/components/voice/RecordingPanel";
 import { ConversationModePicker } from "@/components/chat/ConversationModePicker";
 import { ReflectDrawer } from "@/components/reflect/ReflectDrawer";
+import { ReflectionDraftSheet } from "@/components/reflect/ReflectionDraftSheet";
 import { SafetyOverlay } from "@/components/safety/SafetyOverlay";
 import { useSpeechToText } from "@/hooks/useSpeechToText";
 import { useAppState, useAppDispatch, useConversation } from "@/context/AppContext";
@@ -97,6 +98,56 @@ export function CrystLApp() {
   function handleEndSession() {
     endSession();
   }
+
+  // ── Reflection draft handlers ───────────────────────────────────────────────
+
+  const handleReflectionSave = useCallback(
+    async (content: string) => {
+      if (!state.reflectionDraft || !state.sessionId) return;
+      const res = await fetch("/api/reflections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: state.sessionId,
+          content,
+          theme_slug: state.reflectionDraft.theme_slug,
+          mood: state.reflectionDraft.mood,
+          next_step: state.reflectionDraft.next_step,
+        }),
+      });
+      if (!res.ok) throw new Error("Save failed");
+      dispatch({ type: "CLEAR_REFLECTION_DRAFT" });
+    },
+    [state.reflectionDraft, state.sessionId, dispatch]
+  );
+
+  const handleReflectionRegenerate = useCallback(async () => {
+    if (!state.reflectionDraft || !state.sessionId) return;
+    const res = await fetch(`/api/reflections/${state.sessionId}/draft/regenerate`, {
+      method: "POST",
+    });
+    if (!res.ok) throw new Error("Regenerate failed");
+    const data = await res.json();
+    dispatch({
+      type: "UPDATE_REFLECTION_DRAFT",
+      draft: {
+        id: data.draft.id,
+        content: data.draft.content,
+        theme_slug: data.draft.theme_slug,
+        mood: data.draft.mood as Mood,
+        next_step: data.draft.next_step,
+      },
+    });
+  }, [state.reflectionDraft, state.sessionId, dispatch]);
+
+  const handleReflectionDiscard = useCallback(async () => {
+    if (!state.sessionId) return;
+    const res = await fetch(`/api/reflections/${state.sessionId}/draft`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error("Discard failed");
+    dispatch({ type: "CLEAR_REFLECTION_DRAFT" });
+  }, [state.sessionId, dispatch]);
 
   // ── Derived state ──────────────────────────────────────────────────────────
 
@@ -281,6 +332,16 @@ export function CrystLApp() {
         themeTrends={themeTrends}
         onGroundingOpen={() => setShowGrounding(true)}
       />
+
+      {/* Reflection draft sheet — shown after session ends */}
+      {state.reflectionDraft && (
+        <ReflectionDraftSheet
+          draft={state.reflectionDraft}
+          onSave={handleReflectionSave}
+          onRegenerate={handleReflectionRegenerate}
+          onDiscard={handleReflectionDiscard}
+        />
+      )}
     </>
   );
 }

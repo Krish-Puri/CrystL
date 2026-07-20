@@ -30,6 +30,7 @@ interface AppStore {
   error: string | null;
   reflectOpen: boolean;
   hasEnded: boolean; // session has been closed, showing reflection draft
+  reflectionDraft: ReflectionDraft | null;
 }
 
 // Initial state
@@ -45,6 +46,7 @@ const initialState: AppStore = {
   error: null,
   reflectOpen: false,
   hasEnded: false,
+  reflectionDraft: null,
 };
 
 // ── Actions ──────────────────────────────────────────────────────────────────
@@ -62,6 +64,8 @@ type AppAction =
   | { type: "SHOW_GROUNDING" }
   | { type: "OPEN_REFLECT" }
   | { type: "CLOSE_REFLECT" }
+  | { type: "CLEAR_REFLECTION_DRAFT" }
+  | { type: "UPDATE_REFLECTION_DRAFT"; draft: ReflectionDraft }
   | { type: "END_SESSION" }
   | { type: "SET_LOADING"; loading: boolean }
   | { type: "SET_ERROR"; error: string | null };
@@ -106,10 +110,16 @@ function reducer(state: AppStore, action: AppAction): AppStore {
       return { ...state, appState: "safety" };
 
     case "SHOW_REFLECTION":
-      return { ...state, reflectOpen: true, hasEnded: true };
+      return { ...state, reflectOpen: true, hasEnded: true, reflectionDraft: action.draft };
 
     case "SHOW_GROUNDING":
       return { ...state, appState: "chat" };
+
+    case "CLEAR_REFLECTION_DRAFT":
+      return { ...state, reflectionDraft: null, reflectOpen: false, hasEnded: false };
+
+    case "UPDATE_REFLECTION_DRAFT":
+      return { ...state, reflectionDraft: action.draft };
 
     case "OPEN_REFLECT":
       return { ...state, reflectOpen: true };
@@ -256,10 +266,11 @@ export function useConversation() {
       dispatch({
         type: "SHOW_REFLECTION",
         draft: {
-          content: data.reflection?.content ?? "",
-          theme_slug: data.reflection?.theme_slug ?? "general",
-          mood: state.mood ?? "okay",
-          next_step: data.reflection?.next_step ?? null,
+          id: data.draft?.id,
+          content: data.draft?.content ?? "",
+          theme_slug: data.draft?.theme_slug ?? "general",
+          mood: (data.draft?.mood as Mood) ?? state.mood ?? "okay",
+          next_step: data.draft?.next_step ?? null,
         },
       });
     } catch (err) {
