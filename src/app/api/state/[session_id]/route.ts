@@ -1,0 +1,64 @@
+import { NextRequest, NextResponse } from "next/server";
+import { supabaseServer } from "@/lib/supabase/server";
+
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ session_id: string }> }
+) {
+  const { session_id } = await params;
+  try {
+    const sb = await supabaseServer();
+    const { data, error } = await sb
+      .from("conversation_states")
+      .select("*")
+      .eq("session_id", session_id)
+      .single();
+
+    if (error) throw error;
+    return NextResponse.json(data);
+  } catch (err) {
+    console.error("[GET /api/state/:session_id]", err);
+    return NextResponse.json({ error: "State not found" }, { status: 404 });
+  }
+}
+
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ session_id: string }> }
+) {
+  const { session_id } = await params;
+  try {
+    const sb = await supabaseServer();
+    const body = await req.json();
+
+    const allowed = [
+      "current_mood",
+      "conversation_phase",
+      "current_theme",
+      "safety_level",
+      "last_reflection_saved",
+      "message_count",
+      "grounding_recommended",
+      "is_paused",
+      "mode",
+    ];
+
+    const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    for (const key of allowed) {
+      if (body[key] !== undefined) updates[key] = body[key];
+    }
+
+    const { data, error } = await sb
+      .from("conversation_states")
+      .update(updates)
+      .eq("session_id", session_id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return NextResponse.json(data);
+  } catch (err) {
+    console.error("[PATCH /api/state/:session_id]", err);
+    return NextResponse.json({ error: "Failed to update state" }, { status: 500 });
+  }
+}
