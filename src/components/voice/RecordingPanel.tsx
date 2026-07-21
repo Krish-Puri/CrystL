@@ -1,15 +1,12 @@
 "use client";
 
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
+import { useSpeechToText } from "@/hooks/useSpeechToText";
 
 interface RecordingPanelProps {
-  isListening: boolean;
-  elapsedTime: number; // seconds
   onSend: (text: string) => void;
   onCancel: () => void;
-  // Mutable ref to the contentEditable div, shared with the parent so
-  // the parent can clear it before starting a new recording session.
   panelDivRef: React.MutableRefObject<HTMLDivElement | null>;
 }
 
@@ -21,26 +18,63 @@ function formatTime(seconds: number) {
   return `${m}:${s}`;
 }
 
-export function RecordingPanel({
-  isListening,
-  elapsedTime,
-  onSend,
-  onCancel,
-  panelDivRef,
-}: RecordingPanelProps) {
+export function RecordingPanel({ onSend, onCancel, panelDivRef }: RecordingPanelProps) {
   const divRef = useRef<HTMLDivElement>(null);
+  const [elapsedTime, setElapsedTime] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Keep the parent's ref in sync with our internal ref.
-  // This lets CrystLApp clear the div before starting a new recording.
+  const handleInput = useCallback(() => {
+    const text = divRef.current?.textContent ?? "";
+    onSend(text);
+  }, [onSend]);
+
+  // Sync internal divRef → parent's panelDivRef
   useEffect(() => {
     panelDivRef.current = divRef.current;
   }, [panelDivRef]);
 
+  // Speech-to-text — accumulation happens in hook, display in our div
+  const { isListening, startListening, stopListening, isSupported } =
+    useSpeechToText({
+      onResult: () => {
+        // Voice text is accumulated by the hook; we read it from the div
+        // on send so the DOM is always the source of truth for transcript.
+      },
+      onEnd: () => {
+        if (timerRef.current) {
+          clearInterval(timerRef.current);
+          timerRef.current = null;
+        }
+      },
+    });
+
+  // Auto-start listening when panel mounts
+  useEffect(() => {
+    if (!isSupported) return;
+    startListening();
+    timerRef.current = setInterval(() => {
+      setElapsedTime((t) => t + 1);
+    }, 1000);
+    return () => {
+      stopListening();
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function handleSend() {
     const text = divRef.current?.textContent?.trim() ?? "";
     if (!text) return;
+    stopListening();
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    onCancel(); // close panel
     onSend(text);
-    // Clear the div after sending
     if (divRef.current) divRef.current.textContent = "";
   }
 
@@ -54,11 +88,13 @@ export function RecordingPanel({
     >
       {/* Pulsing mic */}
       <div className="relative flex items-center justify-center w-28 h-28">
-        {/* Pulse ring */}
-        <div
-          className="absolute inset-0 rounded-full pulse-ring"
-          style={{ border: "1.5px solid var(--border-accent)" }}
-        />
+        {/* Pulse ring — shown when actively listening */}
+        {isListening && (
+          <div
+            className="absolute inset-0 rounded-full pulse-ring"
+            style={{ border: "1.5px solid var(--border-accent)" }}
+          />
+        )}
         {/* Inner circle */}
         <div
           className="relative z-10 w-20 h-20 rounded-full flex items-center justify-center"
@@ -82,19 +118,19 @@ export function RecordingPanel({
         </div>
       </div>
 
-      {/* Status */}
+      {/* Status — shows listening only when actively listening */}
       <p className="text-sm text-muted-foreground">
         {isListening ? "Listening · " : ""}
         {formatTime(elapsedTime)}
       </p>
 
-      {/* Editable transcript — user types here; voice pushes directly into this div via DOM.
-          We never pass transcript as a prop or React-rendered child, so React never
-          overwrites user input. */}
+      {/* Editable transcript */}
       <div
         ref={divRef}
         contentEditable
         suppressContentEditableWarning
+        onInput={handleInput}
+        onBlur={handleInput}
         className="
           w-full max-w-md min-h-[72px]
           font-voice text-xl leading-relaxed text-center
@@ -106,13 +142,21 @@ export function RecordingPanel({
       />
 
       <p className="text-xs text-muted-foreground -mt-5">
-        tap the text to edit before sending
+        {!isSupported ? "Mic not supported — type above" : "tap the text to edit before sending"}
       </p>
 
       {/* Actions */}
       <div className="flex gap-3 mt-2">
         <button
-          onClick={onCancel}
+          onClick={() => {
+            stopListening();
+            if (timerRef.current) {
+              clearInterval(timerRef.current);
+              timerRef.current = null;
+            }
+            if (divRef.current) divRef.current.textContent = "";
+            onCancel();
+          }}
           className="text-sm px-5 py-2 rounded-full border border-border bg-surface-1 hover:border-border-strong transition-colors cursor-pointer"
         >
           Cancel

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { SessionGreeting } from "@/components/chat/SessionGreeting";
 import { MoodPicker } from "@/components/chat/MoodPicker";
@@ -15,14 +15,12 @@ import { SafetyOverlay } from "@/components/safety/SafetyOverlay";
 import { GroundingExercise } from "@/components/reflect/GroundingExercise";
 import LoadingState from "@/components/ui/LoadingState";
 import ErrorState from "@/components/ui/ErrorState";
-import { useSpeechToText } from "@/hooks/useSpeechToText";
 import { useAppState, useAppDispatch, useConversation } from "@/context/AppContext";
 import { useSession } from "@/hooks/useSession";
 import { trackEvent } from "@/lib/analytics";
 import type { Mood, ConversationMode, Reflection, ThemeTrendEntry } from "@/types";
 
-// Ref to the RecordingPanel's contentEditable div so we can clear it
-// when starting a fresh recording without React re-renders fighting the DOM.
+// Ref to RecordingPanel's contentEditable div — cleared before each recording session.
 const panelDivRef = { current: null as HTMLDivElement | null };
 
 export function CrystLApp() {
@@ -31,11 +29,6 @@ export function CrystLApp() {
   const { setMood, setMode, isFirst } = useSession();
   const { sendMessage, endSession } = useConversation();
 
-  // Recording state
-  const [isRecording, setIsRecording] = useState(false);
-  const [elapsedTime, setElapsedTime] = useState(0);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
   // Grounding exercise
   const [showGrounding, setShowGrounding] = useState(false);
   const [groundingExercise, setGroundingExercise] = useState<string | undefined>();
@@ -43,7 +36,11 @@ export function CrystLApp() {
   // Reflect drawer (for journal access)
   const [reflectOpen, setReflectOpen] = useState(false);
 
-  // Live countdown for rate-limit backoff (updated every second)
+  // Demo reflections/trends (placeholder — loaded from API in full version)
+  const [reflections] = useState<Reflection[]>([]);
+  const [themeTrends] = useState<ThemeTrendEntry[]>([]);
+
+  // Live countdown for rate-limit backoff (updated every second while waiting)
   const [rateLimitCountdown, setRateLimitCountdown] = useState<number | null>(null);
   useEffect(() => {
     if (!state.rateLimitedUntil) {
@@ -54,83 +51,33 @@ export function CrystLApp() {
       const remaining = Math.ceil((state.rateLimitedUntil! - Date.now()) / 1000);
       setRateLimitCountdown(remaining > 0 ? remaining : null);
     };
-    tick(); // run immediately
+    tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, [state.rateLimitedUntil]);
 
-  // Demo reflections/trends (placeholder — loaded from API in full version)
-  const [reflections] = useState<Reflection[]>([]);
-  const [themeTrends] = useState<ThemeTrendEntry[]>([]);
-
-  // Speech-to-text — voice results are pushed into the contentEditable div
-  // directly by RecordingPanel; no React state needed for voice text.
-  const { isListening, startListening, stopListening, isSupported } =
-    useSpeechToText({
-      onResult: (_text) => {
-        // Voice text is accumulated and pushed directly into the div by
-        // RecordingPanel. We don't need to drive React state from here —
-        // doing so would cause re-renders that fight user edits in the DOM.
-      },
-      onEnd: () => {
-        setIsRecording(false);
-        if (timerRef.current) {
-          clearInterval(timerRef.current);
-          timerRef.current = null;
-        }
-      },
-    });
-
-  // ── Recording ─────────────────────────────────────────────────────────────
+  // ── Voice mode: open RecordingPanel (speech auto-starts inside the panel) ─
 
   function handleMicClick() {
-    if (isRecording) {
-      stopListening();
-      setIsRecording(false);
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-    } else {
-      // Wipe the panel's contentEditable div so new session starts fresh.
-      if (panelDivRef.current) panelDivRef.current.textContent = "";
-      setElapsedTime(0);
-      setIsRecording(true);
-      startListening();
-      trackEvent("recording_started");
-      timerRef.current = setInterval(() => {
-        setElapsedTime((t) => t + 1);
-      }, 1000);
-    }
+    dispatch({ type: "OPEN_RECORDING" });
   }
 
   // ── Send from recording panel ──────────────────────────────────────────────
-  // RecordingPanel reads its own div and passes the text to onSend.
+  // RecordingPanel reads its own div and passes text here.
   async function handleSend(text: string) {
-    if (!text.trim()) return;
-    setIsRecording(false);
-    stopListening();
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-    dispatch({ type: "CLOSE_RECORDING" });
-    // Clear the div
-    if (panelDivRef.current) panelDivRef.current.textContent = "";
     trackEvent("recording_completed");
     await sendMessage(text);
   }
 
   // ── Mood selection ─────────────────────────────────────────────────────────
   // Mood is set, then ConversationModePicker appears.
-  // Mode selection is what actually opens the recording panel.
   function handleMoodSelect(mood: Mood) {
     setMood(mood);
     trackEvent("mood_selected", { mood });
   }
 
   // ── Mode selection ─────────────────────────────────────────────────────────
-
+  // Mode is set, then RecordingPanel opens and auto-starts listening.
   function handleModeSelect(mode: ConversationMode) {
     setMode(mode);
     trackEvent("conversation_started", { mode });
@@ -316,31 +263,21 @@ export function CrystLApp() {
               )}
             </AnimatePresence>
 
-            {/* Bottom mic area */}
+            {/* Bottom mic area — opens RecordingPanel */}
             {!showModePicker && hasMessages && !state.hasEnded && (
               <div className="flex flex-col items-center gap-2 pt-3 pb-1">
-                <MicOrb onClick={handleMicClick} size={72} isListening={isListening} />
-                <p className="text-xs text-muted-foreground">Hold to speak</p>
+                <MicOrb onClick={handleMicClick} size={72} />
+                <p className="text-xs text-muted-foreground">Tap to speak</p>
               </div>
             )}
           </div>
         )}
 
-        {/* Recording panel */}
+        {/* Recording panel — auto-starts listening on mount */}
         {showRecording && (
           <RecordingPanel
-            isListening={isListening}
-            elapsedTime={elapsedTime}
             onSend={handleSend}
-            onCancel={() => {
-              setIsRecording(false);
-              stopListening();
-              if (timerRef.current) {
-                clearInterval(timerRef.current);
-                timerRef.current = null;
-              }
-              dispatch({ type: "CLOSE_RECORDING" });
-            }}
+            onCancel={() => dispatch({ type: "CLOSE_RECORDING" })}
             panelDivRef={panelDivRef}
           />
         )}
