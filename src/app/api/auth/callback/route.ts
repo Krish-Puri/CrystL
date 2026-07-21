@@ -19,6 +19,6 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Auth failed — redirect to login page with error
-  return NextResponse.redirect(new URL(`/login?error=auth_failed`, req.url));
+  // Auth failed — redirect back to home page with error param
+  return NextResponse.redirect(new URL(`/?error=auth_failed`, req.url));
 }

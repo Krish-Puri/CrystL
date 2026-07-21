@@ -3,11 +3,18 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase/client";
 
+const BYPASS_AUTH = process.env.NEXT_PUBLIC_AUTH_BYPASS === "true";
+
 interface AuthGateProps {
   children: React.ReactNode;
 }
 
 export function AuthGate({ children }: AuthGateProps) {
+  // Bypass auth in local development / testing
+  if (BYPASS_AUTH) {
+    return <>{children}</>;
+  }
+
   const [user, setUser] = useState<{ id: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState("");

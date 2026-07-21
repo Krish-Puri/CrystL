@@ -230,7 +230,8 @@ ALTER TABLE reflection_feedback ENABLE ROW LEVEL SECURITY;
 
 -- Sessions: users can only see their own
 CREATE POLICY "Users can manage own sessions" ON sessions
-  FOR ALL USING (auth.uid() = user_id);
+  FOR ALL USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
 
 -- Messages: users can only see messages from their own sessions
 CREATE POLICY "Users can manage own messages" ON messages
@@ -246,15 +247,18 @@ CREATE POLICY "Users can manage own conversation states" ON conversation_states
 
 -- Reflections: users can only see their own
 CREATE POLICY "Users can manage own reflections" ON reflections
-  FOR ALL USING (auth.uid() = user_id);
+  FOR ALL USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
 
 -- Theme trends: users can only see their own
 CREATE POLICY "Users can manage own theme trends" ON theme_trends
-  FOR ALL USING (auth.uid() = user_id);
+  FOR ALL USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
 
 -- Safety events: users can only see their own
 CREATE POLICY "Users can manage own safety events" ON safety_events
-  FOR ALL USING (auth.uid() = user_id);
+  FOR ALL USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
 
 -- Reflection feedback: users can only manage feedback on their own reflections
 CREATE POLICY "Users can manage own reflection feedback" ON reflection_feedback
@@ -264,7 +268,8 @@ CREATE POLICY "Users can manage own reflection feedback" ON reflection_feedback
 
 -- Reflection drafts: users can only manage their own drafts
 CREATE POLICY "Users can manage own reflection drafts" ON reflection_drafts
-  FOR ALL USING (auth.uid() = user_id);
+  FOR ALL USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
 
 -- AI usage: users can only see their own usage
 CREATE POLICY "Users can view own ai_usage" ON ai_usage
@@ -272,6 +277,7 @@ CREATE POLICY "Users can view own ai_usage" ON ai_usage
 
 -- Session events: users can only see their own events
 CREATE POLICY "Users can manage own session events" ON session_events
-  FOR ALL USING (auth.uid() = user_id);
+  FOR ALL USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
 
 -- Themes: read-only lookup, no RLS needed (public table)

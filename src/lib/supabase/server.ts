@@ -34,8 +34,13 @@ export async function supabaseUser(): Promise<SupabaseClient> {
 /**
  * Verify the authenticated user from the request cookie.
  * Returns the user_id if valid, throws "Unauthorized" if not authenticated.
+ * When AUTH_BYPASS=true, returns a test user ID for local development.
  */
 export async function getUser(): Promise<{ userId: string }> {
+  if (process.env.AUTH_BYPASS === "true") {
+    return { userId: "00000000-0000-0000-0000-000000000001" };
+  }
+
   const sb = await supabaseUser();
   const {
     data: { user },
