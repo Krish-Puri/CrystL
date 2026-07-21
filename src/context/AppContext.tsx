@@ -169,7 +169,7 @@ export function useConversation() {
   const dispatch = useAppDispatch();
 
   const sendMessage = useCallback(
-    async (transcript: string) => {
+    async (transcript: string, retryCount = 0) => {
       if (!state.sessionId) return;
       dispatch({ type: "SET_LOADING", loading: true });
 
@@ -184,7 +184,18 @@ export function useConversation() {
           }),
         });
 
-        if (!res.ok) throw new Error("Orchestrator failed");
+        // Rate-limited — retry with exponential backoff (up to 2 retries)
+        if (res.status === 429 && retryCount < 2) {
+          const delay = (retryCount + 1) * 1500;
+          await new Promise((r) => setTimeout(r, delay));
+          dispatch({ type: "SET_LOADING", loading: false });
+          return sendMessage(transcript, retryCount + 1);
+        }
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.message ?? "Orchestrator failed");
+        }
 
         const data = await res.json();
 

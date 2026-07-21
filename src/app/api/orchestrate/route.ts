@@ -224,7 +224,16 @@ export async function POST(req: NextRequest) {
       // don't let logging failure cascade
     }
 
-    console.error("[POST /api/orchestrate] error:", err instanceof Error ? err.message : String(err));
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[POST /api/orchestrate] error:", msg);
+
+    // 429 = Gemini rate limit — tell the frontend to retry with backoff
+    if (msg.includes("429")) {
+      return NextResponse.json(
+        { error: "rate_limited", message: "Too many requests right now. Please wait a moment and try again." },
+        { status: 429 }
+      );
+    }
     return NextResponse.json({ error: "Orchestrator failed" }, { status: 500 });
   }
 }

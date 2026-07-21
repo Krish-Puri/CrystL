@@ -90,11 +90,13 @@ export function CrystLApp() {
   }
 
   // ── Mood selection ─────────────────────────────────────────────────────────
-
+  // Mood sets the mood, then ConversationModePicker appears.
+  // Mode selection is what opens the recording panel.
   function handleMoodSelect(mood: Mood) {
     setMood(mood);
     trackEvent("mood_selected", { mood });
-    setTimeout(() => dispatch({ type: "OPEN_RECORDING" }), 300);
+    // ConversationModePicker is shown via the derived `showModePicker` state
+    // (mood is set, mode is still null → mode picker appears)
   }
 
   // ── Mode selection ─────────────────────────────────────────────────────────
@@ -102,7 +104,8 @@ export function CrystLApp() {
   function handleModeSelect(mode: ConversationMode) {
     setMode(mode);
     trackEvent("conversation_started", { mode });
-    dispatch({ type: "CLOSE_RECORDING" });
+    // Open recording panel immediately so user can speak
+    dispatch({ type: "OPEN_RECORDING" });
   }
 
   // ── End session ─────────────────────────────────────────────────────────────
@@ -236,13 +239,17 @@ export function CrystLApp() {
                   exit={{ opacity: 0 }}
                   className="py-1.5"
                 >
-                  <SessionGreeting
-                    variant={isFirst ? "first" : "returning"}
-                    lastTheme={state.lastMemory}
-                    onMoodSelect={handleMoodSelect}
-                    onStartFresh={() => dispatch({ type: "START_SESSION", session_id: state.sessionId ?? "", is_first: true })}
-                    onPickUp={() => { dispatch({ type: "SET_MODE", mode: state.mode ?? "default" }); }}
-                  />
+                  {!state.mood ? (
+                    <SessionGreeting
+                      variant={isFirst ? "first" : "returning"}
+                      lastTheme={state.lastMemory}
+                      onMoodSelect={handleMoodSelect}
+                      onStartFresh={() => dispatch({ type: "START_SESSION", session_id: state.sessionId ?? "", is_first: true })}
+                      onPickUp={() => { dispatch({ type: "SET_MODE", mode: state.mode ?? "default" }); }}
+                    />
+                  ) : (
+                    <ConversationModePicker onSelect={handleModeSelect} />
+                  )}
                 </motion.div>
               ) : (
                 <motion.div
@@ -284,7 +291,7 @@ export function CrystLApp() {
             {/* Bottom mic area */}
             {!showModePicker && hasMessages && !state.hasEnded && (
               <div className="flex flex-col items-center gap-2 pt-3 pb-1">
-                <MicOrb onClick={handleMicClick} size={72} />
+                <MicOrb onClick={handleMicClick} size={72} isListening={isListening} />
                 <p className="text-xs text-muted-foreground">Hold to speak</p>
               </div>
             )}

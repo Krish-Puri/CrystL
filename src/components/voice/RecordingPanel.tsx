@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useRef, useEffect } from "react";
 import { motion } from "framer-motion";
 
 interface RecordingPanelProps {
@@ -28,6 +28,34 @@ export function RecordingPanel({
   onSend,
   onCancel,
 }: RecordingPanelProps) {
+  const divRef = useRef<HTMLDivElement>(null);
+  // Track the last transcript value we set programmatically (from voice)
+  // so we don't overwrite user edits during re-renders.
+  const lastVoiceTranscriptRef = useRef("");
+
+  // When transcript changes externally (voice update), update the DOM.
+  // But skip this if the user has since edited the text away from what
+  // we last set — that means they're typing and we should NOT overwrite.
+  useEffect(() => {
+    const div = divRef.current;
+    if (!div) return;
+    const currentText = div.textContent ?? "";
+    // Only sync if the div content matches what we last set from voice
+    // (i.e. user hasn't edited away from it)
+    if (currentText === lastVoiceTranscriptRef.current) {
+      if (div.textContent !== transcript) {
+        div.textContent = transcript;
+      }
+    }
+    lastVoiceTranscriptRef.current = transcript;
+  }, [transcript]);
+
+  function handleInput() {
+    const text = divRef.current?.textContent ?? "";
+    lastVoiceTranscriptRef.current = text;
+    onTranscriptChange(text);
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -73,10 +101,11 @@ export function RecordingPanel({
 
       {/* Editable transcript */}
       <div
+        ref={divRef}
         contentEditable
         suppressContentEditableWarning
-        onBlur={(e) => onTranscriptChange(e.currentTarget.textContent ?? "")}
-        onInput={(e) => onTranscriptChange(e.currentTarget.textContent ?? "")}
+        onBlur={handleInput}
+        onInput={handleInput}
         className="
           w-full max-w-md min-h-[72px]
           font-voice text-xl leading-relaxed text-center
