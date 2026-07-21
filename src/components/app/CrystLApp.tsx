@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { SessionGreeting } from "@/components/chat/SessionGreeting";
 import { MoodPicker } from "@/components/chat/MoodPicker";
@@ -21,6 +21,10 @@ import { useSession } from "@/hooks/useSession";
 import { trackEvent } from "@/lib/analytics";
 import type { Mood, ConversationMode, Reflection, ThemeTrendEntry } from "@/types";
 
+// Ref to the RecordingPanel's contentEditable div so we can clear it
+// when starting a fresh recording without React re-renders fighting the DOM.
+const panelDivRef = { current: null as HTMLDivElement | null };
+
 export function CrystLApp() {
   const state = useAppState();
   const dispatch = useAppDispatch();
@@ -29,7 +33,6 @@ export function CrystLApp() {
 
   // Recording state
   const [isRecording, setIsRecording] = useState(false);
-  const [transcript, setTranscript] = useState("");
   const [elapsedTime, setElapsedTime] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -44,13 +47,21 @@ export function CrystLApp() {
   const [reflections] = useState<Reflection[]>([]);
   const [themeTrends] = useState<ThemeTrendEntry[]>([]);
 
-  // Speech-to-text
+  // Speech-to-text — voice results are pushed into the contentEditable div
+  // directly by RecordingPanel; no React state needed for voice text.
   const { isListening, startListening, stopListening, isSupported } =
     useSpeechToText({
-      onResult: (text) => setTranscript(text),
+      onResult: (_text) => {
+        // Voice text is accumulated and pushed directly into the div by
+        // RecordingPanel. We don't need to drive React state from here —
+        // doing so would cause re-renders that fight user edits in the DOM.
+      },
       onEnd: () => {
         setIsRecording(false);
-        if (timerRef.current) clearInterval(timerRef.current);
+        if (timerRef.current) {
+          clearInterval(timerRef.current);
+          timerRef.current = null;
+        }
       },
     });
 
@@ -60,9 +71,13 @@ export function CrystLApp() {
     if (isRecording) {
       stopListening();
       setIsRecording(false);
-      if (timerRef.current) clearInterval(timerRef.current);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
     } else {
-      setTranscript("");
+      // Wipe the panel's contentEditable div so new session starts fresh.
+      if (panelDivRef.current) panelDivRef.current.textContent = "";
       setElapsedTime(0);
       setIsRecording(true);
       startListening();
@@ -74,29 +89,28 @@ export function CrystLApp() {
   }
 
   // ── Send from recording panel ──────────────────────────────────────────────
-
-  async function handleSend() {
-    if (!transcript.trim()) return;
+  // RecordingPanel reads its own div and passes the text to onSend.
+  async function handleSend(text: string) {
+    if (!text.trim()) return;
     setIsRecording(false);
     stopListening();
-    if (timerRef.current) clearInterval(timerRef.current);
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
     dispatch({ type: "CLOSE_RECORDING" });
-    setTranscript("");
-    // If user edited the transcript before sending
-    const wasEdited = transcript !== ""; // simplified check
-    trackEvent("transcript_edited", { via_voice: true });
+    // Clear the div
+    if (panelDivRef.current) panelDivRef.current.textContent = "";
     trackEvent("recording_completed");
-    await sendMessage(transcript);
+    await sendMessage(text);
   }
 
   // ── Mood selection ─────────────────────────────────────────────────────────
-  // Mood sets the mood, then ConversationModePicker appears.
-  // Mode selection is what opens the recording panel.
+  // Mood is set, then ConversationModePicker appears.
+  // Mode selection is what actually opens the recording panel.
   function handleMoodSelect(mood: Mood) {
     setMood(mood);
     trackEvent("mood_selected", { mood });
-    // ConversationModePicker is shown via the derived `showModePicker` state
-    // (mood is set, mode is still null → mode picker appears)
   }
 
   // ── Mode selection ─────────────────────────────────────────────────────────
@@ -104,7 +118,6 @@ export function CrystLApp() {
   function handleModeSelect(mode: ConversationMode) {
     setMode(mode);
     trackEvent("conversation_started", { mode });
-    // Open recording panel immediately so user can speak
     dispatch({ type: "OPEN_RECORDING" });
   }
 
@@ -171,7 +184,6 @@ export function CrystLApp() {
   const showSafety = state.appState === "safety";
   const showModePicker = state.mode === null;
   const hasMessages = state.messages.length > 0;
-  const isLoading = state.isLoading;
 
   return (
     <>
@@ -259,7 +271,7 @@ export function CrystLApp() {
                   exit={{ opacity: 0 }}
                   className="flex-1 overflow-y-auto flex flex-col"
                 >
-                  {isLoading && (
+                  {state.isLoading && (
                     <LoadingState message="I'm thinking…" />
                   )}
                   {state.isGeneratingReflection && (
@@ -301,17 +313,19 @@ export function CrystLApp() {
         {/* Recording panel */}
         {showRecording && (
           <RecordingPanel
-            transcript={transcript}
             isListening={isListening}
             elapsedTime={elapsedTime}
-            onTranscriptChange={setTranscript}
             onSend={handleSend}
             onCancel={() => {
               setIsRecording(false);
               stopListening();
-              if (timerRef.current) clearInterval(timerRef.current);
+              if (timerRef.current) {
+                clearInterval(timerRef.current);
+                timerRef.current = null;
+              }
               dispatch({ type: "CLOSE_RECORDING" });
             }}
+            panelDivRef={panelDivRef}
           />
         )}
 
@@ -360,4 +374,3 @@ export function CrystLApp() {
     </>
   );
 }
-

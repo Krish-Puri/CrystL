@@ -4,12 +4,13 @@ import { useRef, useEffect } from "react";
 import { motion } from "framer-motion";
 
 interface RecordingPanelProps {
-  transcript: string;
   isListening: boolean;
   elapsedTime: number; // seconds
-  onTranscriptChange: (text: string) => void;
-  onSend: () => void;
+  onSend: (text: string) => void;
   onCancel: () => void;
+  // Mutable ref to the contentEditable div, shared with the parent so
+  // the parent can clear it before starting a new recording session.
+  panelDivRef: React.MutableRefObject<HTMLDivElement | null>;
 }
 
 function formatTime(seconds: number) {
@@ -21,39 +22,26 @@ function formatTime(seconds: number) {
 }
 
 export function RecordingPanel({
-  transcript,
   isListening,
   elapsedTime,
-  onTranscriptChange,
   onSend,
   onCancel,
+  panelDivRef,
 }: RecordingPanelProps) {
   const divRef = useRef<HTMLDivElement>(null);
-  // Track the last transcript value we set programmatically (from voice)
-  // so we don't overwrite user edits during re-renders.
-  const lastVoiceTranscriptRef = useRef("");
 
-  // When transcript changes externally (voice update), update the DOM.
-  // But skip this if the user has since edited the text away from what
-  // we last set — that means they're typing and we should NOT overwrite.
+  // Keep the parent's ref in sync with our internal ref.
+  // This lets CrystLApp clear the div before starting a new recording.
   useEffect(() => {
-    const div = divRef.current;
-    if (!div) return;
-    const currentText = div.textContent ?? "";
-    // Only sync if the div content matches what we last set from voice
-    // (i.e. user hasn't edited away from it)
-    if (currentText === lastVoiceTranscriptRef.current) {
-      if (div.textContent !== transcript) {
-        div.textContent = transcript;
-      }
-    }
-    lastVoiceTranscriptRef.current = transcript;
-  }, [transcript]);
+    panelDivRef.current = divRef.current;
+  }, [panelDivRef]);
 
-  function handleInput() {
-    const text = divRef.current?.textContent ?? "";
-    lastVoiceTranscriptRef.current = text;
-    onTranscriptChange(text);
+  function handleSend() {
+    const text = divRef.current?.textContent?.trim() ?? "";
+    if (!text) return;
+    onSend(text);
+    // Clear the div after sending
+    if (divRef.current) divRef.current.textContent = "";
   }
 
   return (
@@ -96,16 +84,17 @@ export function RecordingPanel({
 
       {/* Status */}
       <p className="text-sm text-muted-foreground">
-        Listening · {formatTime(elapsedTime)}
+        {isListening ? "Listening · " : ""}
+        {formatTime(elapsedTime)}
       </p>
 
-      {/* Editable transcript */}
+      {/* Editable transcript — user types here; voice pushes directly into this div via DOM.
+          We never pass transcript as a prop or React-rendered child, so React never
+          overwrites user input. */}
       <div
         ref={divRef}
         contentEditable
         suppressContentEditableWarning
-        onBlur={handleInput}
-        onInput={handleInput}
         className="
           w-full max-w-md min-h-[72px]
           font-voice text-xl leading-relaxed text-center
@@ -114,9 +103,7 @@ export function RecordingPanel({
           transition-colors cursor-text
         "
         style={{ fontFamily: "var(--font-voice)" }}
-      >
-        {transcript}
-      </div>
+      />
 
       <p className="text-xs text-muted-foreground -mt-5">
         tap the text to edit before sending
@@ -131,7 +118,7 @@ export function RecordingPanel({
           Cancel
         </button>
         <button
-          onClick={onSend}
+          onClick={handleSend}
           className="text-sm px-5 py-2 rounded-full flex items-center gap-2 cursor-pointer"
           style={{
             backgroundColor: "var(--fill-accent)",

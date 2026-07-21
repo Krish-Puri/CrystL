@@ -13,8 +13,20 @@ type SpeechRecognitionType = any;
 export function useSpeechToText({ onResult, onEnd }: UseSpeechToTextOptions) {
   const [isListening, setIsListening] = useState(false);
   const [isSupported, setIsSupported] = useState(false);
+  // Store recognition instance in a ref so handlers can access the current one
   const recognitionRef = useRef<SpeechRecognitionType | null>(null);
+  // Accumulate transcript across interim results
   const transcriptRef = useRef("");
+  // Guard against stale onResult calls after unmount
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      recognitionRef.current?.abort();
+    };
+  }, []);
 
   useEffect(() => {
     const win = window as Window & {
@@ -22,59 +34,92 @@ export function useSpeechToText({ onResult, onEnd }: UseSpeechToTextOptions) {
       SpeechRecognition?: SpeechRecognitionType;
     };
     const SR = win.SpeechRecognition || win.webkitSpeechRecognition;
-    if (SR) {
-      setIsSupported(true);
+    if (!SR) {
+      setIsSupported(false);
+      return;
+    }
+    setIsSupported(true);
+
+    // Build a fresh recognition instance — needed because Chrome sometimes
+    // misbehaves if you reuse an instance after it has ended/stopped.
+    function createRecognition(): SpeechRecognitionType {
       const recognition = new SR();
       recognition.continuous = true;
       recognition.interimResults = true;
       recognition.lang = "en-US";
+      recognition.maxAlternatives = 1;
 
-      recognition.onresult = (event: { resultIndex: number; results: Array<{ isFinal: boolean; 0: { transcript: string } }> }) => {
+      recognition.onresult = (event: {
+        resultIndex: number;
+        results: Array<{ isFinal: boolean; 0: { transcript: string } }>;
+      }) => {
         let finalTranscript = "";
         for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript;
+          const t = event.results[i][0].transcript;
           if (event.results[i].isFinal) {
-            finalTranscript += transcript;
+            finalTranscript += t;
           }
         }
         if (finalTranscript) {
           transcriptRef.current += finalTranscript;
+        }
+        // Always push current interim + accumulated final so user sees text updating
+        if (mountedRef.current) {
           onResult(transcriptRef.current);
         }
       };
 
       recognition.onend = () => {
+        if (!mountedRef.current) return;
         setIsListening(false);
         onEnd?.();
       };
 
       recognition.onerror = (event: { error: string }) => {
-        console.error("STT error:", event.error);
+        if (!mountedRef.current) return;
+        // 'no-speech' is normal — the user just hasn't spoken yet
+        // 'aborted' means we stopped it ourselves via stopListening
+        if (event.error !== "no-speech" && event.error !== "aborted") {
+          console.error("[STT] recognition error:", event.error);
+        }
         setIsListening(false);
         onEnd?.();
       };
 
-      recognitionRef.current = recognition;
+      return recognition;
     }
+
+    recognitionRef.current = createRecognition();
   }, [onResult, onEnd]);
 
   const startListening = useCallback(() => {
-    if (!recognitionRef.current) return;
+    const recognition = recognitionRef.current;
+    if (!recognition) return;
     transcriptRef.current = "";
     try {
-      recognitionRef.current.start();
+      recognition.start();
       setIsListening(true);
-    } catch {
-      // Already started
+    } catch (err) {
+      // If it's already running, abort and restart fresh
+      if (err instanceof Error && err.message.includes("already started")) {
+        recognition.abort();
+        try {
+          recognition.start();
+          setIsListening(true);
+        } catch {
+          console.error("[STT] failed to restart:", err);
+        }
+      }
     }
   }, []);
 
   const stopListening = useCallback(() => {
-    if (!recognitionRef.current) return;
+    const recognition = recognitionRef.current;
+    if (!recognition) return;
     try {
-      recognitionRef.current.stop();
+      recognition.stop();
     } catch {
-      // Already stopped
+      // ignore
     }
   }, []);
 
