@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
 
     // Create session — user_id comes from auth, not the request body
     const { data: session, error } = await sb
-      .from("sessions")
+      .from("crystl_sessions")
       .insert({ user_id: userId, mood_at_start, is_active: true })
       .select()
       .single();
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
 
     // Check if this is the user's first session (count=1 after insert = first)
     const { count } = await sb
-      .from("sessions")
+      .from("crystl_sessions")
       .select("*", { count: "exact", head: true })
       .eq("user_id", userId)
       .eq("is_active", true);
@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
     if (!sessionId) return NextResponse.json({ error: "Missing session_id" }, { status: 400 });
 
     const { data: session } = await sb
-      .from("sessions")
+      .from("crystl_sessions")
       .select("*")
       .eq("id", sessionId)
       .eq("user_id", userId)

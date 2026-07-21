@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
 
     // Verify ownership
     const { data: session } = await sb
-      .from("sessions")
+      .from("crystl_sessions")
       .select("user_id, mood_at_start, current_mood:conversation_states!inner(current_mood)")
       .eq("id", session_id)
       .single();
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
 
     // Update session with episodic memory and mark inactive
     await sb
-      .from("sessions")
+      .from("crystl_sessions")
       .update({
         memory_summary: episodicResult.summary,
         ended_at: new Date().toISOString(),

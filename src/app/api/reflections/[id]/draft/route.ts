@@ -60,7 +60,7 @@ export async function POST(
 
     // Verify session ownership and get mood
     const { data: session } = await sb
-      .from("sessions")
+      .from("crystl_sessions")
       .select("user_id, mood_at_start")
       .eq("id", session_id)
       .eq("user_id", userId)

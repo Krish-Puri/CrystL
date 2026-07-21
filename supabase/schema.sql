@@ -4,13 +4,16 @@
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
+-- NOTE: The CrystL sessions table is named `crystl_sessions` to avoid
+-- colliding with Supabase Auth's built-in `sessions` table.
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Schema changes (run these on existing DBs first)
 -- ─────────────────────────────────────────────────────────────────────────────
 
--- 1. Add updated_at + personality_version to sessions
-ALTER TABLE sessions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();
-ALTER TABLE sessions ADD COLUMN IF NOT EXISTS personality_version INTEGER DEFAULT 1 NOT NULL;
+-- 1. Add updated_at + personality_version to crystl_sessions
+ALTER TABLE crystl_sessions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();
+ALTER TABLE crystl_sessions ADD COLUMN IF NOT EXISTS personality_version INTEGER DEFAULT 1 NOT NULL;
 
 -- 2. Fix safety_events.safety_level CHECK to include 0 (was 1, 2 only)
 ALTER TABLE safety_events DROP CONSTRAINT IF EXISTS safety_events_safety_level_check;
@@ -30,9 +33,9 @@ CREATE INDEX IF NOT EXISTS idx_safety_events_user ON safety_events(user_id);
 ALTER TABLE reflection_feedback ADD COLUMN IF NOT EXISTS was_regenerated BOOLEAN DEFAULT false NOT NULL;
 
 -- ─────────────────────────────────────────────────────────────
--- sessions
+-- crystl_sessions
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS sessions (
+CREATE TABLE IF NOT EXISTS crystl_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
@@ -49,7 +52,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 -- conversation_states (runtime state per active session)
 -- ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS conversation_states (
-  session_id UUID PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+  session_id UUID PRIMARY KEY REFERENCES crystl_sessions(id) ON DELETE CASCADE,
   current_mood TEXT CHECK (current_mood IN ('calm', 'okay', 'low', 'sad', 'overwhelmed')),
   current_intent TEXT CHECK (current_intent IN ('vent', 'reflection', 'advice', 'grounding', 'checkin', 'context', 'pause')),
   conversation_phase TEXT DEFAULT 'checkin' NOT NULL CHECK (conversation_phase IN ('start', 'checkin', 'explore', 'clarify', 'support', 'reflection', 'close')),
@@ -68,7 +71,7 @@ CREATE TABLE IF NOT EXISTS conversation_states (
 -- ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS messages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  session_id UUID NOT NULL REFERENCES crystl_sessions(id) ON DELETE CASCADE,
   role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
   content TEXT NOT NULL,
   intent TEXT CHECK (intent IN ('vent', 'reflection', 'advice', 'grounding', 'checkin', 'context', 'pause')),
@@ -81,7 +84,7 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE TABLE IF NOT EXISTS reflections (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  session_id UUID REFERENCES sessions(id) ON DELETE SET NULL,
+  session_id UUID REFERENCES crystl_sessions(id) ON DELETE SET NULL,
   content TEXT NOT NULL,
   theme TEXT NOT NULL,
   mood TEXT CHECK (mood IN ('calm', 'okay', 'low', 'sad', 'overwhelmed')),
@@ -109,7 +112,7 @@ CREATE TABLE IF NOT EXISTS theme_trends (
 CREATE TABLE IF NOT EXISTS safety_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
-  session_id UUID REFERENCES sessions(id) ON DELETE SET NULL,
+  session_id UUID REFERENCES crystl_sessions(id) ON DELETE SET NULL,
   safety_level INTEGER NOT NULL CHECK (safety_level IN (0, 1, 2)),
   resolved BOOLEAN DEFAULT false NOT NULL,
   created_at TIMESTAMPTZ DEFAULT now() NOT NULL
@@ -156,7 +159,7 @@ ON CONFLICT (slug) DO NOTHING;
 -- ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS reflection_drafts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  session_id UUID NOT NULL REFERENCES crystl_sessions(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   content TEXT NOT NULL,
   theme_slug TEXT NOT NULL,
@@ -172,7 +175,7 @@ CREATE TABLE IF NOT EXISTS reflection_drafts (
 CREATE TABLE IF NOT EXISTS ai_usage (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
-  session_id UUID REFERENCES sessions(id) ON DELETE SET NULL,
+  session_id UUID REFERENCES crystl_sessions(id) ON DELETE SET NULL,
   model TEXT NOT NULL,
   operation TEXT NOT NULL CHECK (operation IN ('orchestrator', 'safety', 'reflection', 'summary')),
   input_tokens INTEGER,
@@ -189,7 +192,7 @@ CREATE TABLE IF NOT EXISTS ai_usage (
 CREATE TABLE IF NOT EXISTS session_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
-  session_id UUID REFERENCES sessions(id) ON DELETE SET NULL,
+  session_id UUID REFERENCES crystl_sessions(id) ON DELETE SET NULL,
   event_type TEXT NOT NULL CHECK (event_type IN (
     'session_start', 'session_end', 'reflection_saved', 'reflection_discarded',
     'reflection_regenerated', 'voice_used', 'transcript_edited',
@@ -202,7 +205,7 @@ CREATE TABLE IF NOT EXISTS session_events (
 -- ─────────────────────────────────────────────────────────────
 -- indexes
 -- ─────────────────────────────────────────────────────────────
-CREATE INDEX IF NOT EXISTS idx_sessions_user_active ON sessions(user_id) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_crystl_sessions_user_active ON crystl_sessions(user_id) WHERE is_active = true;
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_reflections_user ON reflections(user_id);
 CREATE INDEX IF NOT EXISTS idx_reflections_theme ON reflections(user_id, theme);
@@ -220,7 +223,7 @@ CREATE INDEX IF NOT EXISTS idx_session_events_type ON session_events(event_type)
 -- ─────────────────────────────────────────────────────────────
 -- Row Level Security
 -- ─────────────────────────────────────────────────────────────
-ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE crystl_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE conversation_states ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reflections ENABLE ROW LEVEL SECURITY;
@@ -229,20 +232,20 @@ ALTER TABLE safety_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reflection_feedback ENABLE ROW LEVEL SECURITY;
 
 -- Sessions: users can only see their own
-CREATE POLICY "Users can manage own sessions" ON sessions
+CREATE POLICY "Users can manage own crystl_sessions" ON crystl_sessions
   FOR ALL USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
 
 -- Messages: users can only see messages from their own sessions
 CREATE POLICY "Users can manage own messages" ON messages
   FOR ALL USING (
-    EXISTS (SELECT 1 FROM sessions WHERE sessions.id = messages.session_id AND sessions.user_id = auth.uid())
+    EXISTS (SELECT 1 FROM crystl_sessions WHERE crystl_sessions.id = messages.session_id AND crystl_sessions.user_id = auth.uid())
   );
 
 -- Conversation states: users can only see states from their own sessions
 CREATE POLICY "Users can manage own conversation states" ON conversation_states
   FOR ALL USING (
-    EXISTS (SELECT 1 FROM sessions WHERE sessions.id = conversation_states.session_id AND sessions.user_id = auth.uid())
+    EXISTS (SELECT 1 FROM crystl_sessions WHERE crystl_sessions.id = conversation_states.session_id AND crystl_sessions.user_id = auth.uid())
   );
 
 -- Reflections: users can only see their own

@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
 
     // Get most recent session with memory_summary
     const { data } = await sb
-      .from("sessions")
+      .from("crystl_sessions")
       .select("memory_summary, theme, mood_at_start, created_at")
       .eq("user_id", userId)
       .eq("is_active", false)

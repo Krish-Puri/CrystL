@@ -11,7 +11,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     // Verify ownership
     const { data: existing } = await sb
-      .from("sessions")
+      .from("crystl_sessions")
       .select("user_id")
       .eq("id", id)
       .single();
@@ -26,7 +26,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     updates.updated_at = new Date().toISOString();
 
     const { data, error } = await sb
-      .from("sessions")
+      .from("crystl_sessions")
       .update(updates)
       .eq("id", id)
       .select()
@@ -51,7 +51,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
 
     // Verify ownership
     const { data: existing } = await sb
-      .from("sessions")
+      .from("crystl_sessions")
       .select("user_id")
       .eq("id", id)
       .single();
@@ -62,7 +62,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
 
     // End the session
     await sb
-      .from("sessions")
+      .from("crystl_sessions")
       .update({ is_active: false, ended_at: new Date().toISOString() })
       .eq("id", id);
 

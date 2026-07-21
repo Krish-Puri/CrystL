@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
 
     // ── Auth: verify user owns the session ─────────────────────────────
     const { data: session } = await sb
-      .from("sessions")
+      .from("crystl_sessions")
       .select("user_id, memory_summary, theme, personality_version")
       .eq("id", session_id)
       .eq("user_id", authedUserId)
@@ -185,7 +185,7 @@ export async function POST(req: NextRequest) {
       session.theme !== decision.persistence.update_theme
     ) {
       await sb
-        .from("sessions")
+        .from("crystl_sessions")
         .update({ theme: decision.persistence.update_theme })
         .eq("id", session_id);
     }

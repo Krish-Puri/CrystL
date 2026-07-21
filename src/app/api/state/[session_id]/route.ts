@@ -12,7 +12,7 @@ export async function GET(
 
     // Verify ownership via session
     const { data: session } = await sb
-      .from("sessions")
+      .from("crystl_sessions")
       .select("user_id")
       .eq("id", session_id)
       .single();
@@ -50,7 +50,7 @@ export async function PATCH(
 
     // Verify ownership
     const { data: session } = await sb
-      .from("sessions")
+      .from("crystl_sessions")
       .select("user_id")
       .eq("id", session_id)
       .single();

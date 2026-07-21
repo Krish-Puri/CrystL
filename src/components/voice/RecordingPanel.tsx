@@ -76,6 +76,7 @@ export function RecordingPanel({
         contentEditable
         suppressContentEditableWarning
         onBlur={(e) => onTranscriptChange(e.currentTarget.textContent ?? "")}
+        onInput={(e) => onTranscriptChange(e.currentTarget.textContent ?? "")}
         className="
           w-full max-w-md min-h-[72px]
           font-voice text-xl leading-relaxed text-center
