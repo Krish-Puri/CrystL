@@ -13,9 +13,12 @@ import { ReflectDrawer } from "@/components/reflect/ReflectDrawer";
 import { ReflectionDraftSheet } from "@/components/reflect/ReflectionDraftSheet";
 import { SafetyOverlay } from "@/components/safety/SafetyOverlay";
 import { GroundingExercise } from "@/components/reflect/GroundingExercise";
+import LoadingState from "@/components/ui/LoadingState";
+import ErrorState from "@/components/ui/ErrorState";
 import { useSpeechToText } from "@/hooks/useSpeechToText";
 import { useAppState, useAppDispatch, useConversation } from "@/context/AppContext";
 import { useSession } from "@/hooks/useSession";
+import { trackEvent } from "@/lib/analytics";
 import type { Mood, ConversationMode, Reflection, ThemeTrendEntry } from "@/types";
 
 export function CrystLApp() {
@@ -63,6 +66,7 @@ export function CrystLApp() {
       setElapsedTime(0);
       setIsRecording(true);
       startListening();
+      trackEvent("recording_started");
       timerRef.current = setInterval(() => {
         setElapsedTime((t) => t + 1);
       }, 1000);
@@ -78,6 +82,10 @@ export function CrystLApp() {
     if (timerRef.current) clearInterval(timerRef.current);
     dispatch({ type: "CLOSE_RECORDING" });
     setTranscript("");
+    // If user edited the transcript before sending
+    const wasEdited = transcript !== ""; // simplified check
+    trackEvent("transcript_edited", { via_voice: true });
+    trackEvent("recording_completed");
     await sendMessage(transcript);
   }
 
@@ -85,6 +93,7 @@ export function CrystLApp() {
 
   function handleMoodSelect(mood: Mood) {
     setMood(mood);
+    trackEvent("mood_selected", { mood });
     setTimeout(() => dispatch({ type: "OPEN_RECORDING" }), 300);
   }
 
@@ -92,6 +101,7 @@ export function CrystLApp() {
 
   function handleModeSelect(mode: ConversationMode) {
     setMode(mode);
+    trackEvent("conversation_started", { mode });
     dispatch({ type: "CLOSE_RECORDING" });
   }
 
@@ -125,7 +135,7 @@ export function CrystLApp() {
 
   const handleReflectionRegenerate = useCallback(async () => {
     if (!state.reflectionDraft || !state.sessionId) return;
-    const res = await fetch(`/api/reflections/${state.sessionId}/draft/regenerate`, {
+    const res = await fetch(`/api/reflections/${state.sessionId}/draft`, {
       method: "POST",
     });
     if (!res.ok) throw new Error("Regenerate failed");
@@ -243,10 +253,11 @@ export function CrystLApp() {
                   className="flex-1 overflow-y-auto flex flex-col"
                 >
                   {isLoading && (
-                    <div className="flex items-center gap-2 px-4 py-3">
-                      <div className="w-2 h-2 rounded-full bg-muted-foreground/40 animate-bounce" style={{ animationDelay: "0ms" }} />
-                      <div className="w-2 h-2 rounded-full bg-muted-foreground/40 animate-bounce" style={{ animationDelay: "150ms" }} />
-                      <div className="w-2 h-2 rounded-full bg-muted-foreground/40 animate-bounce" style={{ animationDelay: "300ms" }} />
+                    <LoadingState message="I'm thinking…" />
+                  )}
+                  {state.isGeneratingReflection && (
+                    <div className="flex-1 flex items-center justify-center">
+                      <LoadingState message="Generating reflection…" />
                     </div>
                   )}
                   {state.messages.map((msg) =>
@@ -263,20 +274,10 @@ export function CrystLApp() {
             {/* Error banner */}
             <AnimatePresence>
               {state.error && (
-                <motion.div
-                  initial={{ opacity: 0, y: 4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0 }}
-                  className="mx-auto mb-2 px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-500"
-                >
-                  {state.error}
-                  <button
-                    onClick={() => dispatch({ type: "SET_ERROR", error: null })}
-                    className="ml-2 underline cursor-pointer"
-                  >
-                    Dismiss
-                  </button>
-                </motion.div>
+                <ErrorState
+                  message={state.error}
+                  onRetry={() => dispatch({ type: "SET_ERROR", error: null })}
+                />
               )}
             </AnimatePresence>
 
@@ -314,6 +315,7 @@ export function CrystLApp() {
             onGrounding={() => {
               dispatch({ type: "CLOSE_RECORDING" });
               setShowGrounding(true);
+              trackEvent("grounding_opened", { exercise_id: groundingExercise });
             }}
           />
         )}
@@ -335,6 +337,7 @@ export function CrystLApp() {
         onGroundingOpen={(exerciseId) => {
           setGroundingExercise(exerciseId);
           setShowGrounding(true);
+          trackEvent("grounding_opened", { exercise_id: exerciseId });
         }}
       />
 

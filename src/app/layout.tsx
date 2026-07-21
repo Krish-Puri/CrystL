@@ -1,6 +1,10 @@
+"use client";
+
 import type { Metadata } from "next";
+import { useEffect } from "react";
 import "./globals.css";
 import { AppProvider } from "@/context/AppContext";
+import { initPostHog } from "@/lib/analytics";
 
 export const metadata: Metadata = {
   title: "CrystL — A calm space to be heard",
@@ -16,6 +20,10 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  useEffect(() => {
+    initPostHog();
+  }, []);
+
   return (
     <html lang="en">
       <body className="min-h-screen bg-background antialiased font-sans">

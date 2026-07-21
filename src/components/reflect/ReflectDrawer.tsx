@@ -2,6 +2,7 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import { useEffect } from "react";
+import EmptyState from "@/components/ui/EmptyState";
 import type { Reflection, ThemeTrendEntry } from "@/types";
 
 interface ReflectDrawerProps {
@@ -101,9 +102,11 @@ export function ReflectDrawer({
                   Journal
                 </p>
                 {reflections.length === 0 ? (
-                  <p className="text-sm text-muted-foreground italic">
-                    Your reflections will appear here after each session.
-                  </p>
+                  <EmptyState
+                    icon="reflection"
+                    title="Your reflections will appear here"
+                    description="After each session, a reflection card will be saved here."
+                  />
                 ) : (
                   <div className="flex flex-col gap-2">
                     {reflections.slice(0, 5).map((r) => (

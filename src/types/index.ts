@@ -145,6 +145,9 @@ export type AppAction =
   | { type: "OPEN_REFLECT" }
   | { type: "CLOSE_REFLECT" }
   | { type: "CLEAR_REFLECTION_DRAFT" }
+  | { type: "UPDATE_REFLECTION_DRAFT"; draft: ReflectionDraft }
   | { type: "END_SESSION" }
   | { type: "SET_LOADING"; loading: boolean }
-  | { type: "SET_ERROR"; error: string | null };
+  | { type: "SET_ERROR"; error: string | null }
+  | { type: "SET_LAST_MEMORY"; memory: string | null }
+  | { type: "SET_GENERATING_REFLECTION"; generating: boolean };

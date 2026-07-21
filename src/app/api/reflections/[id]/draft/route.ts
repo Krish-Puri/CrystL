@@ -125,10 +125,19 @@ export async function POST(
     });
 
     // Also mark was_regenerated on the feedback row if one exists
-    await sb
-      .from("reflection_feedback")
-      .update({ was_regenerated: true })
-      .eq("session_id", session_id);
+    // reflection_feedback links via reflection_id, not session_id directly
+    const { data: reflectionRow } = await sb
+      .from("reflections")
+      .select("id")
+      .eq("session_id", session_id)
+      .single();
+
+    if (reflectionRow) {
+      await sb
+        .from("reflection_feedback")
+        .update({ was_regenerated: true })
+        .eq("reflection_id", reflectionRow.id);
+    }
 
     return NextResponse.json({
       draft: {

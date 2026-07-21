@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { ReflectionDraft, Mood } from "@/types";
+import { trackEvent } from "@/lib/analytics";
 
 interface ReflectionDraftSheetProps {
   draft: ReflectionDraft;
@@ -43,6 +44,11 @@ export function ReflectionDraftSheet({
     setSaving(true);
     try {
       await onSave(editing ? editedContent : draft.content);
+      trackEvent("reflection_saved", {
+        was_edited: editing,
+        was_regenerated: false,
+        theme: draft.theme_slug,
+      });
     } finally {
       setSaving(false);
     }
@@ -52,6 +58,7 @@ export function ReflectionDraftSheet({
     setRegenerating(true);
     try {
       await onRegenerate();
+      trackEvent("reflection_regenerated", { theme: draft.theme_slug });
     } finally {
       setRegenerating(false);
       setEditing(false);
@@ -62,6 +69,7 @@ export function ReflectionDraftSheet({
     setDiscarding(true);
     try {
       await onDiscard();
+      trackEvent("reflection_discarded", { theme: draft.theme_slug });
     } finally {
       setDiscarding(false);
     }

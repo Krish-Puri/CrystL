@@ -110,7 +110,7 @@ CREATE TABLE IF NOT EXISTS safety_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   session_id UUID REFERENCES sessions(id) ON DELETE SET NULL,
-  safety_level INTEGER NOT NULL CHECK (safety_level IN (1, 2)),
+  safety_level INTEGER NOT NULL CHECK (safety_level IN (0, 1, 2)),
   resolved BOOLEAN DEFAULT false NOT NULL,
   created_at TIMESTAMPTZ DEFAULT now() NOT NULL
 );
@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS reflection_feedback (
   was_helpful BOOLEAN,
   was_edited BOOLEAN DEFAULT false NOT NULL,
   was_discarded BOOLEAN DEFAULT false NOT NULL,
+  was_regenerated BOOLEAN DEFAULT false NOT NULL,
   created_at TIMESTAMPTZ DEFAULT now() NOT NULL
 );
 

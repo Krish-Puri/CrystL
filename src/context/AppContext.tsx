@@ -14,7 +14,9 @@ import type {
   Message,
   Mood,
   ReflectionDraft,
+  AppAction,
 } from "@/types";
+import { trackEvent } from "@/lib/analytics";
 
 // ── State ────────────────────────────────────────────────────────────────────
 
@@ -27,6 +29,7 @@ interface AppStore {
   messages: Message[];
   appState: AppState;
   isLoading: boolean;
+  isGeneratingReflection: boolean; // waiting for summarize API
   error: string | null;
   reflectOpen: boolean;
   hasEnded: boolean; // session has been closed, showing reflection draft
@@ -44,34 +47,13 @@ const initialState: AppStore = {
   messages: [],
   appState: "chat",
   isLoading: false,
+  isGeneratingReflection: false,
   error: null,
   reflectOpen: false,
   hasEnded: false,
   reflectionDraft: null,
   lastMemory: null,
 };
-
-// ── Actions ──────────────────────────────────────────────────────────────────
-
-type AppAction =
-  | { type: "START_SESSION"; session_id: string; is_first: boolean }
-  | { type: "ADD_MESSAGE"; message: Message }
-  | { type: "SET_PHASE"; phase: ConversationPhase }
-  | { type: "SET_MOOD"; mood: Mood }
-  | { type: "SET_MODE"; mode: ConversationMode }
-  | { type: "OPEN_RECORDING" }
-  | { type: "CLOSE_RECORDING" }
-  | { type: "SHOW_SAFETY" }
-  | { type: "SHOW_REFLECTION"; draft: ReflectionDraft }
-  | { type: "SHOW_GROUNDING" }
-  | { type: "OPEN_REFLECT" }
-  | { type: "CLOSE_REFLECT" }
-  | { type: "CLEAR_REFLECTION_DRAFT" }
-  | { type: "UPDATE_REFLECTION_DRAFT"; draft: ReflectionDraft }
-  | { type: "END_SESSION" }
-  | { type: "SET_LOADING"; loading: boolean }
-  | { type: "SET_ERROR"; error: string | null }
-  | { type: "SET_LAST_MEMORY"; memory: string | null };
 
 // ── Reducer ──────────────────────────────────────────────────────────────────
 
@@ -141,6 +123,9 @@ function reducer(state: AppStore, action: AppAction): AppStore {
 
     case "SET_LAST_MEMORY":
       return { ...state, lastMemory: action.memory };
+
+    case "SET_GENERATING_REFLECTION":
+      return { ...state, isGeneratingReflection: action.generating };
 
     default:
       return state;
@@ -225,6 +210,9 @@ export function useConversation() {
         };
         dispatch({ type: "ADD_MESSAGE", message: aiMsg });
 
+        // Track event
+        trackEvent("message_sent", { via_voice: false, transcript_edited: false });
+
         // Drive UI from ConversationDecision
         if (data.decision?.open_safety) {
           dispatch({ type: "SHOW_SAFETY" });
@@ -255,7 +243,7 @@ export function useConversation() {
 
   const endSession = useCallback(async () => {
     if (!state.sessionId) return;
-    dispatch({ type: "SET_LOADING", loading: true });
+    dispatch({ type: "SET_GENERATING_REFLECTION", generating: true });
 
     try {
       // Generate reflection draft
@@ -265,7 +253,7 @@ export function useConversation() {
         body: JSON.stringify({ session_id: state.sessionId }),
       });
 
-      if (!res.ok) throw new Error("Summarize failed");
+      if (!res.ok) throw new Error("I couldn't finish that reflection. Want to try again?");
       const data = await res.json();
 
       dispatch({ type: "END_SESSION" });
@@ -279,13 +267,15 @@ export function useConversation() {
           next_step: data.draft?.next_step ?? null,
         },
       });
+      // Track after successful reflection draft
+      trackEvent("reflection_draft_created", { theme: data.draft?.theme_slug ?? "general" });
     } catch (err) {
       dispatch({
         type: "SET_ERROR",
         error: err instanceof Error ? err.message : "Failed to end session",
       });
     } finally {
-      dispatch({ type: "SET_LOADING", loading: false });
+      dispatch({ type: "SET_GENERATING_REFLECTION", generating: false });
     }
   }, [state.sessionId, state.mood, dispatch]);
 
