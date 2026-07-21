@@ -27,6 +27,35 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Empty transcript" }, { status: 400 });
     }
 
+    // ── Demo bypass: return a realistic mock response when Gemini is unavailable ──
+    if (process.env.GEMINI_BYPASS === "true") {
+      const mockDecision: ConversationDecision = {
+        ai: {
+          response: "I hear you. That sounds really challenging. What's been the hardest part about it for you?",
+          intent: "vent",
+          suggested_phase: "explore",
+        },
+        ui: { show_reflection: false, open_safety: false },
+        persistence: { update_theme: null, update_mood: null, end_session: false },
+        safety_level: 0,
+      };
+      return NextResponse.json({
+        role: "assistant",
+        content: mockDecision.ai.response,
+        phase: mockDecision.ai.suggested_phase,
+        decision: {
+          open_safety: mockDecision.ui.open_safety,
+          show_reflection: false,
+          open_grounding: false,
+        },
+        persistence: {
+          update_theme: null,
+          update_mood: null,
+          end_session: false,
+        },
+      });
+    }
+
     // ── Auth: verify user owns the session ─────────────────────────────
     const { data: session } = await sb
       .from("crystl_sessions")
