@@ -150,4 +150,5 @@ export type AppAction =
   | { type: "SET_LOADING"; loading: boolean }
   | { type: "SET_ERROR"; error: string | null }
   | { type: "SET_LAST_MEMORY"; memory: string | null }
-  | { type: "SET_GENERATING_REFLECTION"; generating: boolean };
+  | { type: "SET_GENERATING_REFLECTION"; generating: boolean }
+  | { type: "SET_RATE_LIMITED"; until: number | null };

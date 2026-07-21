@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { SessionGreeting } from "@/components/chat/SessionGreeting";
 import { MoodPicker } from "@/components/chat/MoodPicker";
@@ -42,6 +42,22 @@ export function CrystLApp() {
 
   // Reflect drawer (for journal access)
   const [reflectOpen, setReflectOpen] = useState(false);
+
+  // Live countdown for rate-limit backoff (updated every second)
+  const [rateLimitCountdown, setRateLimitCountdown] = useState<number | null>(null);
+  useEffect(() => {
+    if (!state.rateLimitedUntil) {
+      setRateLimitCountdown(null);
+      return;
+    }
+    const tick = () => {
+      const remaining = Math.ceil((state.rateLimitedUntil! - Date.now()) / 1000);
+      setRateLimitCountdown(remaining > 0 ? remaining : null);
+    };
+    tick(); // run immediately
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [state.rateLimitedUntil]);
 
   // Demo reflections/trends (placeholder — loaded from API in full version)
   const [reflections] = useState<Reflection[]>([]);
@@ -272,7 +288,7 @@ export function CrystLApp() {
                   className="flex-1 overflow-y-auto flex flex-col"
                 >
                   {state.isLoading && (
-                    <LoadingState message="I'm thinking…" />
+                    <LoadingState message="I'm thinking…" countdownSeconds={rateLimitCountdown} />
                   )}
                   {state.isGeneratingReflection && (
                     <div className="flex-1 flex items-center justify-center">

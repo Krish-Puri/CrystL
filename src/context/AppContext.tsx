@@ -35,6 +35,7 @@ interface AppStore {
   hasEnded: boolean; // session has been closed, showing reflection draft
   reflectionDraft: ReflectionDraft | null;
   lastMemory: string | null;
+  rateLimitedUntil: number | null; // Unix ms; while set, UI shows cooldown countdown
 }
 
 // Initial state
@@ -53,6 +54,7 @@ const initialState: AppStore = {
   hasEnded: false,
   reflectionDraft: null,
   lastMemory: null,
+  rateLimitedUntil: null,
 };
 
 // ── Reducer ──────────────────────────────────────────────────────────────────
@@ -127,6 +129,9 @@ function reducer(state: AppStore, action: AppAction): AppStore {
     case "SET_GENERATING_REFLECTION":
       return { ...state, isGeneratingReflection: action.generating };
 
+    case "SET_RATE_LIMITED":
+      return { ...state, rateLimitedUntil: action.until, error: null };
+
     default:
       return state;
   }
@@ -184,11 +189,14 @@ export function useConversation() {
           }),
         });
 
-        // Rate-limited — retry with exponential backoff (up to 2 retries)
+        // Rate-limited — keep spinner, show countdown, then retry (max 2 retries)
         if (res.status === 429 && retryCount < 2) {
-          const delay = (retryCount + 1) * 1500;
-          await new Promise((r) => setTimeout(r, delay));
-          dispatch({ type: "SET_LOADING", loading: false });
+          const backoffMs = (retryCount + 1) * 5000; // 5s then 10s
+          const until = Date.now() + backoffMs;
+          dispatch({ type: "SET_RATE_LIMITED", until });
+          await new Promise((r) => setTimeout(r, backoffMs));
+          dispatch({ type: "SET_RATE_LIMITED", until: null });
+          // keep isLoading=true while retrying
           return sendMessage(transcript, retryCount + 1);
         }
 
