@@ -5,7 +5,10 @@ import { motion } from "framer-motion";
 import { useSpeechToText } from "@/hooks/useSpeechToText";
 
 interface RecordingPanelProps {
+  /** Called when user clicks Send — only the button triggers this. */
   onSend: (text: string) => void;
+  /** Called on every keystroke so the parent can track transcript changes (optional). */
+  onTranscriptChange?: (text: string) => void;
   onCancel: () => void;
   panelDivRef: React.MutableRefObject<HTMLDivElement | null>;
 }
@@ -18,15 +21,16 @@ function formatTime(seconds: number) {
   return `${m}:${s}`;
 }
 
-export function RecordingPanel({ onSend, onCancel, panelDivRef }: RecordingPanelProps) {
+export function RecordingPanel({ onSend, onTranscriptChange, onCancel, panelDivRef }: RecordingPanelProps) {
   const divRef = useRef<HTMLDivElement>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // onInput fires on every keystroke — push text up to parent but do NOT send.
   const handleInput = useCallback(() => {
     const text = divRef.current?.textContent ?? "";
-    onSend(text);
-  }, [onSend]);
+    onTranscriptChange?.(text);
+  }, [onTranscriptChange]);
 
   // Sync internal divRef → parent's panelDivRef
   useEffect(() => {

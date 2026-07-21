@@ -277,6 +277,7 @@ export function CrystLApp() {
         {showRecording && (
           <RecordingPanel
             onSend={handleSend}
+            onTranscriptChange={() => {}}
             onCancel={() => dispatch({ type: "CLOSE_RECORDING" })}
             panelDivRef={panelDivRef}
           />
