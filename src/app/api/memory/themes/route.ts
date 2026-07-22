@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
       .order("conversation_count", { ascending: false });
 
     if (error) throw error;
-    return NextResponse.json({ themes: data ?? [] });
+    return NextResponse.json({ trends: data ?? [] });
   } catch (err) {
     if (err instanceof Error && err.message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

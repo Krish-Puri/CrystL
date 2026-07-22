@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer, getUser } from "@/lib/supabase/server";
 import { generateReflection, generateEpisodicSummary } from "@/lib/gemini";
+import { normalizeMood } from "@/lib/contracts";
 
 // POST /api/memory/summarize
 // Ends the session: generates episodic summary, creates reflection_draft, logs session_end
@@ -65,7 +66,7 @@ export async function POST(req: NextRequest) {
         user_id: userId,
         content: reflectionResult.content,
         theme_slug: reflectionResult.theme_slug,
-        mood: (session.mood_at_start as string) ?? "okay",
+        mood: normalizeMood((session.current_mood ?? session.mood_at_start) as string),
         next_step: reflectionResult.next_step,
       })
       .select()

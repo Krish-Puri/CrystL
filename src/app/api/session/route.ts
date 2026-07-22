@@ -26,12 +26,11 @@ export async function POST(req: NextRequest) {
       message_count: 0,
     });
 
-    // Check if this is the user's first session (count=1 after insert = first)
+    // Check if this is the user's first session (count all past sessions)
     const { count } = await sb
       .from("crystl_sessions")
       .select("*", { count: "exact", head: true })
-      .eq("user_id", userId)
-      .eq("is_active", true);
+      .eq("user_id", userId);
 
     return NextResponse.json({
       session_id: session.id,

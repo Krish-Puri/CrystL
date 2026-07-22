@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer, getUser } from "@/lib/supabase/server";
 import { generateReflection } from "@/lib/gemini";
+import { normalizeMood } from "@/lib/contracts";
 
 // DELETE /api/reflections/[id]/draft
 // Discards a reflection draft — user chose not to save it
@@ -94,24 +95,26 @@ export async function POST(
     await sb.from("ai_usage").insert({
       user_id: userId,
       session_id,
-      model: process.env.GEMINI_MODEL ?? "gemini-2.0-flash",
+      model: process.env.GROQ_MODEL ?? "openai/gpt-oss-20b",
       operation: "reflection",
       latency_ms,
       success: true,
     });
 
-    // Replace existing draft with new one
+    // Upsert draft — insert if none exists, replace if one does
     const { data: newDraft, error: upsertError } = await sb
       .from("reflection_drafts")
-      .update({
-        content: reflectionData.content,
-        theme_slug: reflectionData.theme_slug,
-        mood: (session.mood_at_start as string) ?? "okay",
-        next_step: reflectionData.next_step,
-        created_at: new Date().toISOString(),
-      })
-      .eq("session_id", session_id)
-      .eq("user_id", userId)
+      .upsert(
+        {
+          session_id,
+          user_id: userId,
+          content: reflectionData.content,
+          theme_slug: reflectionData.theme_slug,
+          mood: normalizeMood((session as { current_mood?: string }).current_mood ?? session.mood_at_start),
+          next_step: reflectionData.next_step,
+        },
+        { onConflict: "session_id,user_id" }
+      )
       .select()
       .single();
 

@@ -36,8 +36,10 @@ export function useSession() {
           const memRes = await fetch("/api/memory/recent");
           if (memRes.ok) {
             const memData = await memRes.json();
-            if (memData.memory?.memory_summary) {
-              dispatch({ type: "SET_LAST_MEMORY", memory: memData.memory.memory_summary });
+            const { extractMemorySummary } = await import("@/lib/contracts");
+            const summary = extractMemorySummary(memData);
+            if (summary) {
+              dispatch({ type: "SET_LAST_MEMORY", memory: summary });
             }
           }
         }
