@@ -2,7 +2,31 @@
 
 import { z } from "zod";
 
-// ── Shared enums ────────────────────────────────────────────────────────────
+// ── Re-exports from canonical contracts ──────────────────────────────────────
+
+import {
+  PhaseEnum,
+  normalizeMood,
+  normalizePhase,
+  normalizeReflectionDraft,
+  extractMemorySummary,
+  EpisodicMemorySchema,
+  ReflectionDraftContract,
+} from "./contracts";
+
+export {
+  PhaseEnum,
+  normalizeMood,
+  normalizePhase,
+  normalizeReflectionDraft,
+  extractMemorySummary,
+  EpisodicMemorySchema,
+  ReflectionDraftContract,
+};
+
+export type { Phase } from "./contracts";
+
+// ── Local enums (not in contracts — only used internally here) ────────────────
 
 export const IntentEnum = z.enum([
   "vent",
@@ -12,15 +36,6 @@ export const IntentEnum = z.enum([
   "checkin",
   "context",
   "pause",
-]);
-
-export const PhaseEnum = z.enum([
-  "checkin",
-  "explore",
-  "clarify",
-  "support",
-  "reflection",
-  "close",
 ]);
 
 export const MoodEnum = z.enum(["calm", "okay", "low", "sad", "overwhelmed"]);
@@ -33,7 +48,10 @@ export const ConversationDecisionSchema = z.object({
   ai: z.object({
     response: z.string(),
     intent: IntentEnum,
-    suggested_phase: PhaseEnum,
+    suggested_phase: z.preprocess(
+      (v) => (typeof v === "string" && !["checkin","start","explore","clarify","support","reflection","close"].includes(v) ? "explore" : v),
+      PhaseEnum
+    ),
   }),
   ui: z.object({
     show_reflection: z.boolean(),
@@ -42,7 +60,10 @@ export const ConversationDecisionSchema = z.object({
   }),
   persistence: z.object({
     update_theme: z.string().nullable(),
-    update_mood: MoodEnum.nullable(),
+    update_mood: z.preprocess(
+      (v) => (v === "null" || v === null ? null : v),
+      MoodEnum.nullable()
+    ),
     end_session: z.boolean(),
   }),
   safety_level: SafetyLevelEnum,
