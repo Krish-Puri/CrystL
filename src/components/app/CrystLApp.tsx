@@ -17,8 +17,9 @@ import LoadingState from "@/components/ui/LoadingState";
 import ErrorState from "@/components/ui/ErrorState";
 import { useAppState, useAppDispatch, useConversation } from "@/context/AppContext";
 import { useSession } from "@/hooks/useSession";
+import { useReflectDrawerData } from "@/hooks/useReflectDrawerData";
 import { trackEvent } from "@/lib/analytics";
-import type { Mood, ConversationMode, Reflection, ThemeTrendEntry } from "@/types";
+import type { Mood, ConversationMode } from "@/types";
 
 // Ref to RecordingPanel's contentEditable div — cleared before each recording session.
 const panelDivRef = { current: null as HTMLDivElement | null };
@@ -35,10 +36,7 @@ export function CrystLApp() {
 
   // Reflect drawer (for journal access)
   const [reflectOpen, setReflectOpen] = useState(false);
-
-  // Demo reflections/trends (placeholder — loaded from API in full version)
-  const [reflections] = useState<Reflection[]>([]);
-  const [themeTrends] = useState<ThemeTrendEntry[]>([]);
+  const { reflections, themeTrends } = useReflectDrawerData(reflectOpen);
 
   // Live countdown for rate-limit backoff (updated every second while waiting)
   const [rateLimitCountdown, setRateLimitCountdown] = useState<number | null>(null);

@@ -28,14 +28,8 @@ const item = {
 };
 
 export function AIMessage({ content, showReplay = true }: AIMessageProps) {
-  const [revealed, setRevealed] = useState(false);
+  const [revealed, setRevealed] = useState(true);
   const paragraphs = content.split("\n").filter(Boolean);
-
-  useEffect(() => {
-    setRevealed(false);
-    const timer = setTimeout(() => setRevealed(true), 50);
-    return () => clearTimeout(timer);
-  }, [content]);
 
   function replay() {
     setRevealed(false);

@@ -177,92 +177,95 @@ export function useConversation() {
     async (transcript: string, retryCount = 0) => {
       if (!state.sessionId) return;
 
-      // Clear any prior error at the start of a fresh send attempt
-      if (retryCount === 0) {
-        dispatch({ type: "SET_ERROR", error: null });
-      }
-      dispatch({ type: "SET_LOADING", loading: true });
-
-      try {
-        const res = await fetch("/api/orchestrate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            session_id: state.sessionId,
-            transcript,
-            is_pause: false,
-          }),
-        });
-
-        // Rate-limited — keep spinner, show countdown, then retry (max 2 retries)
-        if (res.status === 429 && retryCount < 2) {
-          const backoffMs = (retryCount + 1) * 5000; // 5s then 10s
-          const until = Date.now() + backoffMs;
-          dispatch({ type: "SET_RATE_LIMITED", until });
-          await new Promise((r) => setTimeout(r, backoffMs));
-          dispatch({ type: "SET_RATE_LIMITED", until: null });
-          // keep isLoading=true while retrying — do NOT clear it here
-          return sendMessage(transcript, retryCount + 1);
+      const doSend = async (text: string, count: number): Promise<void> => {
+        if (count === 0) {
+          dispatch({ type: "SET_ERROR", error: null });
         }
+        dispatch({ type: "SET_LOADING", loading: true });
 
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.message ?? "Orchestrator failed");
+        try {
+          const res = await fetch("/api/orchestrate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              session_id: state.sessionId,
+              transcript: text,
+              is_pause: false,
+            }),
+          });
+
+          // Rate-limited — keep spinner, show countdown, then retry (max 2 retries)
+          if (res.status === 429 && count < 2) {
+            const backoffMs = (count + 1) * 5000; // 5s then 10s
+            const until = Date.now() + backoffMs;
+            dispatch({ type: "SET_RATE_LIMITED", until });
+            await new Promise((r) => setTimeout(r, backoffMs));
+            dispatch({ type: "SET_RATE_LIMITED", until: null });
+            // keep isLoading=true while retrying — do NOT clear it here
+            return doSend(text, count + 1);
+          }
+
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.message ?? "Orchestrator failed");
+          }
+
+          const data = await res.json();
+
+          // Add user message
+          const userMsg: Message = {
+            id: Date.now().toString(),
+            session_id: state.sessionId!,
+            role: "user",
+            content: text,
+            intent: null,
+            created_at: new Date().toISOString(),
+          };
+          dispatch({ type: "ADD_MESSAGE", message: userMsg });
+
+          // Add AI message
+          const aiMsg: Message = {
+            id: (Date.now() + 1).toString(),
+            session_id: state.sessionId!,
+            role: "assistant",
+            content: data.content,
+            intent: null,
+            created_at: new Date().toISOString(),
+          };
+          dispatch({ type: "ADD_MESSAGE", message: aiMsg });
+
+          // Track event
+          trackEvent("message_sent", { via_voice: false, transcript_edited: false });
+
+          // Drive UI from ConversationDecision
+          if (data.decision?.open_safety) {
+            dispatch({ type: "SHOW_SAFETY" });
+          }
+          if (data.decision?.show_reflection) {
+            dispatch({ type: "SHOW_REFLECTION", draft: data.decision.show_reflection });
+          }
+          if (data.decision?.open_grounding) {
+            dispatch({ type: "SHOW_GROUNDING" });
+          }
+          if (data.phase) {
+            dispatch({ type: "SET_PHASE", phase: data.phase });
+          }
+          if (data.persistence?.update_mood) {
+            dispatch({ type: "SET_MOOD", mood: data.persistence.update_mood });
+          }
+
+          dispatch({ type: "SET_LOADING", loading: false });
+          return;
+        } catch (err) {
+          dispatch({
+            type: "SET_ERROR",
+            error: err instanceof Error ? err.message : "Something went wrong",
+          });
+          dispatch({ type: "SET_LOADING", loading: false });
         }
+      };
 
-        const data = await res.json();
-
-        // Add user message
-        const userMsg: Message = {
-          id: Date.now().toString(),
-          session_id: state.sessionId,
-          role: "user",
-          content: transcript,
-          intent: null,
-          created_at: new Date().toISOString(),
-        };
-        dispatch({ type: "ADD_MESSAGE", message: userMsg });
-
-        // Add AI message
-        const aiMsg: Message = {
-          id: (Date.now() + 1).toString(),
-          session_id: state.sessionId,
-          role: "assistant",
-          content: data.content,
-          intent: null,
-          created_at: new Date().toISOString(),
-        };
-        dispatch({ type: "ADD_MESSAGE", message: aiMsg });
-
-        // Track event
-        trackEvent("message_sent", { via_voice: false, transcript_edited: false });
-
-        // Drive UI from ConversationDecision
-        if (data.decision?.open_safety) {
-          dispatch({ type: "SHOW_SAFETY" });
-        }
-        if (data.decision?.show_reflection) {
-          dispatch({ type: "SHOW_REFLECTION", draft: data.decision.show_reflection });
-        }
-        if (data.decision?.open_grounding) {
-          dispatch({ type: "SHOW_GROUNDING" });
-        }
-        if (data.phase) {
-          dispatch({ type: "SET_PHASE", phase: data.phase });
-        }
-        if (data.persistence?.update_mood) {
-          dispatch({ type: "SET_MOOD", mood: data.persistence.update_mood });
-        }
-
-        dispatch({ type: "SET_LOADING", loading: false });
-        return;
-      } catch (err) {
-        dispatch({
-          type: "SET_ERROR",
-          error: err instanceof Error ? err.message : "Something went wrong",
-        });
-        dispatch({ type: "SET_LOADING", loading: false });
-      }
+      return doSend(transcript, retryCount);
     },
     [state.sessionId, dispatch]
   );
