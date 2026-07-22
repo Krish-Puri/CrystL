@@ -40,9 +40,10 @@ export function RecordingPanel({ onSend, onTranscriptChange, onCancel, panelDivR
   // Speech-to-text — accumulation happens in hook, display in our div
   const { isListening, startListening, stopListening, isSupported } =
     useSpeechToText({
-      onResult: () => {
-        // Voice text is accumulated by the hook; we read it from the div
-        // on send so the DOM is always the source of truth for transcript.
+      onResult: (text) => {
+        if (divRef.current && divRef.current.textContent !== text) {
+          divRef.current.textContent = text;
+        }
       },
       onEnd: () => {
         if (timerRef.current) {

@@ -1,4 +1,4 @@
-// CrystL Gemini API client
+// CrystL LLM client — delegates to Groq (primary) or Gemini via provider abstraction.
 // All parsing uses Zod safeParse — never raw JSON.parse
 
 import { z } from "zod";
@@ -9,20 +9,19 @@ import {
 } from "./schemas";
 import type { ConversationDecision } from "./schemas";
 import { getPersona } from "./prompts/personality.v1";
-
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY!;
-const GEMINI_MODEL = process.env.GEMINI_MODEL ?? "gemini-2.0-flash";
+import { createLLMProvider, DEFAULT_MODELS } from "./llm";
+import type { LLMProvider } from "./llm";
 
 // ── JSON extraction ──────────────────────────────────────────────────────────
 
 /**
  * Extract valid JSON from a string that may be wrapped in markdown,
  * prefixed with an apology, or truncated mid-string.
+ * Used by callers to post-process the LLM provider's output.
  */
-function extractJSON(text: string): string {
+export function extractJSON(text: string): string {
   const trimmed = text.trim();
 
-  // Case 1: starts with `{` — find the matching closing brace
   if (trimmed.startsWith("{")) {
     let depth = 0;
     for (let i = 0; i < trimmed.length; i++) {
@@ -32,11 +31,9 @@ function extractJSON(text: string): string {
     }
   }
 
-  // Case 2: markdown code block
   const jsonMatch = trimmed.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
   if (jsonMatch) return jsonMatch[1].trim();
 
-  // Case 3: "Here's the JSON:" prefix or similar
   const colonIdx = trimmed.indexOf(":");
   const braceIdx = trimmed.indexOf("{");
   if (braceIdx !== -1 && (colonIdx === -1 || braceIdx < colonIdx)) {
@@ -46,42 +43,30 @@ function extractJSON(text: string): string {
   return "{}";
 }
 
-// ── API call helper ─────────────────────────────────────────────────────────
+// ── LLM call via provider abstraction ────────────────────────────────────────
 
-interface GeminiCallResult {
+interface LLMCallResult {
   text: string;
   latency_ms: number;
   inputTokens?: number;
   outputTokens?: number;
 }
 
-async function callGemini(
+// Cached provider instance
+let _provider: LLMProvider | null = null;
+function getProvider(): LLMProvider {
+  if (!_provider) _provider = createLLMProvider();
+  return _provider;
+}
+
+async function callLLM(
   prompt: string,
   temperature: number,
-  maxOutputTokens: number
-): Promise<GeminiCallResult> {
-  const start = Date.now();
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature, maxOutputTokens },
-      }),
-    }
-  );
-  const latency_ms = Date.now() - start;
-
-  if (!res.ok) {
-    throw new Error(`Gemini API error: ${res.status} ${res.statusText}`);
-  }
-
-  const data = await res.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-
-  return { text, latency_ms };
+  maxTokens: number
+): Promise<LLMCallResult> {
+  const provider = getProvider();
+  const model = DEFAULT_MODELS[process.env.LLM_PROVIDER as "groq" | "gemini"] ?? DEFAULT_MODELS.groq;
+  return provider.call(prompt, { model, temperature, maxTokens });
 }
 
 // ── Safety classification ───────────────────────────────────────────────────
@@ -106,15 +91,15 @@ export async function classifySafety(
   message: string
 ): Promise<{ level: 0 | 1 | 2; reason: string; latency_ms: number; model: string; operation: "safety" }> {
   const prompt = SAFETY_PROMPT.replace("{message}", message);
-  const { text, latency_ms } = await callGemini(prompt, 0.1, 64);
+  const { text, latency_ms } = await callLLM(prompt, 0.1, 64);
   const extracted = extractJSON(text);
 
   const result = SafetyEvaluationSchema.safeParse(JSON.parse(extracted));
-  if (result.success) return { level: result.data.level as 0 | 1 | 2, reason: result.data.reason ?? "", latency_ms, model: GEMINI_MODEL, operation: "safety" };
+  if (result.success) return { level: result.data.level as 0 | 1 | 2, reason: result.data.reason ?? "", latency_ms, model: DEFAULT_MODELS.groq, operation: "safety" };
 
   // Fallback on parse failure — be conservative
   console.error("[classifySafety] parse failed, defaulting to level 0:", result.error?.message);
-  return { level: 0, reason: "parse error", latency_ms, model: GEMINI_MODEL, operation: "safety" };
+  return { level: 0, reason: "parse error", latency_ms, model: DEFAULT_MODELS.groq, operation: "safety" };
 }
 
 // ── Prompt helpers ──────────────────────────────────────────────────────────
@@ -143,7 +128,7 @@ async function runOrchestratorWithRetry(
   maxRetries: number = 2
 ): Promise<ConversationDecision> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const { text } = await callGemini(prompt, 0.7, 512);
+    const { text } = await callLLM(prompt, 0.7, 512);
     const extracted = extractJSON(text);
 
     const result = ConversationDecisionSchema.safeParse(JSON.parse(extracted));
@@ -218,14 +203,14 @@ export async function generateReflection(
   conversation: string
 ): Promise<{ content: string; theme_slug: string; next_step: string | null; latency_ms: number; model: string; operation: "reflection" }> {
   const prompt = REFLECTION_PROMPT.replace("{conversation}", conversation);
-  const { text, latency_ms } = await callGemini(prompt, 0.5, 256);
+  const { text, latency_ms } = await callLLM(prompt, 0.5, 256);
   const extracted = extractJSON(text);
 
   const result = ReflectionDraftSchema.safeParse(JSON.parse(extracted));
-  if (result.success) return { ...result.data, latency_ms, model: GEMINI_MODEL, operation: "reflection" as const };
+  if (result.success) return { ...result.data, latency_ms, model: DEFAULT_MODELS.groq, operation: "reflection" as const };
 
   console.error("[generateReflection] parse failed:", result.error?.message);
-  return { content: "A meaningful conversation took place.", theme_slug: "general", next_step: null, latency_ms, model: GEMINI_MODEL, operation: "reflection" as const };
+  return { content: "A meaningful conversation took place.", theme_slug: "general", next_step: null, latency_ms, model: DEFAULT_MODELS.groq, operation: "reflection" as const };
 }
 
 // ── Episodic summary generation ─────────────────────────────────────────────
@@ -241,11 +226,11 @@ export async function generateEpisodicSummary(
   conversation: string
 ): Promise<{ summary: string; latency_ms: number; model: string; operation: "summary" }> {
   const prompt = EPISODIC_SUMMARY_PROMPT.replace("{conversation}", conversation);
-  const { text, latency_ms } = await callGemini(prompt, 0.3, 128);
+  const { text, latency_ms } = await callLLM(prompt, 0.3, 128);
   return {
     summary: text.trim() || "A meaningful conversation took place.",
     latency_ms,
-    model: GEMINI_MODEL,
+    model: DEFAULT_MODELS.groq,
     operation: "summary",
   };
 }

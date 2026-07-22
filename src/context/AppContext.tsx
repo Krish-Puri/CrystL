@@ -176,6 +176,11 @@ export function useConversation() {
   const sendMessage = useCallback(
     async (transcript: string, retryCount = 0) => {
       if (!state.sessionId) return;
+
+      // Clear any prior error at the start of a fresh send attempt
+      if (retryCount === 0) {
+        dispatch({ type: "SET_ERROR", error: null });
+      }
       dispatch({ type: "SET_LOADING", loading: true });
 
       try {
@@ -196,7 +201,7 @@ export function useConversation() {
           dispatch({ type: "SET_RATE_LIMITED", until });
           await new Promise((r) => setTimeout(r, backoffMs));
           dispatch({ type: "SET_RATE_LIMITED", until: null });
-          // keep isLoading=true while retrying
+          // keep isLoading=true while retrying — do NOT clear it here
           return sendMessage(transcript, retryCount + 1);
         }
 
@@ -248,12 +253,14 @@ export function useConversation() {
         if (data.persistence?.update_mood) {
           dispatch({ type: "SET_MOOD", mood: data.persistence.update_mood });
         }
+
+        dispatch({ type: "SET_LOADING", loading: false });
+        return;
       } catch (err) {
         dispatch({
           type: "SET_ERROR",
           error: err instanceof Error ? err.message : "Something went wrong",
         });
-      } finally {
         dispatch({ type: "SET_LOADING", loading: false });
       }
     },

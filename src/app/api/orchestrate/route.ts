@@ -27,30 +27,102 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Empty transcript" }, { status: 400 });
     }
 
-    // ── Demo bypass: return a realistic mock response when Gemini is unavailable ──
+    // ── Demo bypass: return a contextually-aware mock response ──
     if (process.env.GEMINI_BYPASS === "true") {
+      const { mode } = body ?? {};
+      const text = (transcript ?? "").toLowerCase().trim();
+      const wordCount = text.split(/\s+/).length;
+
+      // Short messages get short, curious responses
+      if (wordCount <= 3) {
+        const brief = [
+          "Hmm. Tell me more about that.",
+          "That's interesting. What's it like for you right now?",
+          "Mm. What comes up when you sit with that?",
+        ];
+        return NextResponse.json({
+          role: "assistant",
+          content: brief[Math.floor(Date.now() / 1000) % brief.length],
+          phase: "explore",
+          decision: { open_safety: false, show_reflection: false, open_grounding: false },
+          persistence: { update_theme: null, update_mood: null, end_session: false },
+        });
+      }
+
+      // Longer messages — respond to the emotional weight
+      let response: string;
+      let intent: ConversationDecision["ai"]["intent"] = "vent";
+      let suggested_phase: ConversationDecision["ai"]["suggested_phase"] = "explore";
+      let update_theme: string | null = null;
+      let update_mood: ConversationDecision["persistence"]["update_mood"] = null;
+
+      if (mode === "vent" || text.includes("tired") || text.includes("exhausted") || text.includes("burnout") || text.includes("overwhelmed")) {
+        response = "You've been carrying a lot. That exhaustion is real — you don't have to justify it here.";
+        update_theme = "burnout";
+        update_mood = "overwhelmed";
+        intent = "vent";
+      } else if (mode === "reflection" || text.includes("think") || text.includes("wonder") || text.includes("should i")) {
+        response = "That's worth sitting with. What does your gut say is the real issue underneath all of this?";
+        intent = "reflection";
+        suggested_phase = "clarify";
+      } else if (text.includes("anxious") || text.includes("nervous") || text.includes("worried") || text.includes("presentation") || text.includes("interview")) {
+        response = "That anxiety is trying to tell you something. What's the worst outcome you're actually bracing for?";
+        update_theme = "presentation-anxiety";
+        update_mood = "low";
+        intent = "vent";
+      } else if (text.includes("sad") || text.includes("down") || text.includes("lonely") || text.includes("miss") || text.includes("gone")) {
+        response = "That loss is real, even if it's the kind people don't always see. What do you miss most?";
+        update_theme = "loneliness";
+        update_mood = "sad";
+        intent = "vent";
+      } else if (text.includes("family") || text.includes("mom") || text.includes("dad") || text.includes("brother") || text.includes("sister") || text.includes("parent")) {
+        response = "Family stuff is complicated in ways that are hard to explain to anyone else. What part of it weighs on you most?";
+        update_theme = "family";
+        update_mood = "low";
+        intent = "vent";
+      } else if (text.includes("breakup") || text.includes("relationship") || text.includes("ex") || text.includes("dating") || text.includes("partner")) {
+        response = "Relationships mess with your head in ways that linger. How long has this been on your mind?";
+        update_theme = "relationship-stress";
+        intent = "vent";
+      } else if (text.includes("work") || text.includes("job") || text.includes("career") || text.includes("boss") || text.includes("promotion")) {
+        response = "Work stuff sneaks into everything else. Is this about the work itself, or what it represents about you?";
+        update_theme = "career-growth";
+        intent = "vent";
+      } else if (mode === "advice" || text.includes("help") || text.includes("advice") || text.includes("should")) {
+        response = "One small thing you could try this week: pick the one thing that's been nagging you most and do the smallest possible step toward it today.";
+        intent = "advice";
+        suggested_phase = "support";
+      } else {
+        // Default warm, curious response — no platitudes
+        const defaults = [
+          "You've been thinking about this for a reason. What's the part you keep coming back to?",
+          "That thing you mentioned — does it show up in other parts of your life too?",
+          "I'm curious about what you just said. When you imagine things being different, what does that look like?",
+        ];
+        response = defaults[Math.floor(Date.now() / 1000) % defaults.length];
+        intent = "vent";
+        suggested_phase = "explore";
+      }
+
       const mockDecision: ConversationDecision = {
-        ai: {
-          response: "I hear you. That sounds really challenging. What's been the hardest part about it for you?",
-          intent: "vent",
-          suggested_phase: "explore",
-        },
+        ai: { response, intent, suggested_phase },
         ui: { show_reflection: false, open_safety: false },
-        persistence: { update_theme: null, update_mood: null, end_session: false },
+        persistence: { update_theme, update_mood, end_session: false },
         safety_level: 0,
       };
+
       return NextResponse.json({
         role: "assistant",
         content: mockDecision.ai.response,
         phase: mockDecision.ai.suggested_phase,
         decision: {
-          open_safety: mockDecision.ui.open_safety,
+          open_safety: false,
           show_reflection: false,
           open_grounding: false,
         },
         persistence: {
-          update_theme: null,
-          update_mood: null,
+          update_theme: mockDecision.persistence.update_theme,
+          update_mood: mockDecision.persistence.update_mood,
           end_session: false,
         },
       });
@@ -130,7 +202,7 @@ export async function POST(req: NextRequest) {
     await sb.from("ai_usage").insert({
       user_id,
       session_id,
-      model: process.env.GEMINI_MODEL ?? "gemini-2.0-flash",
+      model: process.env.LLM_PROVIDER === "groq" ? "openai/gpt-oss-20b" : (process.env.GEMINI_MODEL ?? "gemini-2.0-flash"),
       operation: "orchestrator",
       latency_ms,
       success: true,
@@ -243,7 +315,7 @@ export async function POST(req: NextRequest) {
       const sb = await supabaseServer();
       await sb.from("ai_usage").insert({
         user_id,
-        model: process.env.GEMINI_MODEL ?? "gemini-2.0-flash",
+        model: process.env.LLM_PROVIDER === "groq" ? "openai/gpt-oss-20b" : (process.env.GEMINI_MODEL ?? "gemini-2.0-flash"),
         operation: "orchestrator",
         latency_ms,
         success: false,
