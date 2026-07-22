@@ -1,6 +1,9 @@
 // LLM Provider abstraction
 // All LLM calls go through this interface — swap the implementation by changing LLM_PROVIDER.
 
+import { GroqProvider } from "./providers/groq";
+import { GeminiProvider } from "./providers/gemini";
+
 export interface LLMCallResult {
   text: string;
   latency_ms: number;
@@ -30,20 +33,9 @@ export function createLLMProvider(): LLMProvider {
   const provider = (process.env.LLM_PROVIDER ?? "groq") as LLMProviderType;
   switch (provider) {
     case "groq":
-      return createGroqProvider();
+      return new GroqProvider();
     case "gemini":
     default:
-      return createGeminiProvider();
+      return new GeminiProvider();
   }
-}
-
-// Lazy imports so the other provider's dependencies are only loaded if used
-function createGroqProvider(): LLMProvider {
-  const { GroqProvider } = require("./providers/groq");
-  return new GroqProvider();
-}
-
-function createGeminiProvider(): LLMProvider {
-  const { GeminiProvider } = require("./providers/gemini");
-  return new GeminiProvider();
 }

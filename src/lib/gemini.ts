@@ -1,11 +1,10 @@
 // CrystL LLM client — delegates to Groq (primary) or Gemini via provider abstraction.
 // All parsing uses Zod safeParse — never raw JSON.parse
 
-import { z } from "zod";
 import {
   ConversationDecisionSchema,
   SafetyEvaluationSchema,
-  ReflectionDraftSchema,
+  normalizeReflectionDraft,
 } from "./schemas";
 import type { ConversationDecision } from "./schemas";
 import { getPersona } from "./prompts/personality.v1";
@@ -196,6 +195,7 @@ Generate a reflection card for this conversation. Return ONLY valid JSON:
 {
   "content": "2-3 sentences summarizing the emotional theme and what was discussed",
   "theme_slug": "a short slug for the theme (e.g. 'presentation-anxiety', 'career-growth', 'general')",
+  "mood": "the user's mood as one of: calm, okay, low, sad, overwhelmed (use null if mood is unclear)",
   "next_step": "one small, concrete micro-action the user could try (or null if not applicable)"
 }`;
 
@@ -206,11 +206,8 @@ export async function generateReflection(
   const { text, latency_ms } = await callLLM(prompt, 0.5, 256);
   const extracted = extractJSON(text);
 
-  const result = ReflectionDraftSchema.safeParse(JSON.parse(extracted));
-  if (result.success) return { ...result.data, latency_ms, model: DEFAULT_MODELS.groq, operation: "reflection" as const };
-
-  console.error("[generateReflection] parse failed:", result.error?.message);
-  return { content: "A meaningful conversation took place.", theme_slug: "general", next_step: null, latency_ms, model: DEFAULT_MODELS.groq, operation: "reflection" as const };
+  const normalized = normalizeReflectionDraft(JSON.parse(extracted));
+  return { ...normalized, latency_ms, model: DEFAULT_MODELS.groq, operation: "reflection" as const };
 }
 
 // ── Episodic summary generation ─────────────────────────────────────────────

@@ -46,7 +46,7 @@ Respond with ONLY valid JSON (no markdown, no explanation):
   "safety_level": 0|1|2
 }`;
 
-export function getPersona(version: number): string {
+export function getPersona(_version: number): string {
   // v2 doesn't exist yet, so all versions return v1
   return PERSONA_V1;
 }
