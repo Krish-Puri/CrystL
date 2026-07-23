@@ -1,7 +1,29 @@
 "use client";
 
-import { useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { supabase } from "@/lib/supabase/client";
+
+function UrlErrorBanner() {
+  const searchParams = useSearchParams();
+  const urlError = searchParams.get("error");
+  if (!urlError) return null;
+  return (
+    <div
+      style={{
+        padding: "0.75rem 1rem",
+        backgroundColor: "rgba(239, 68, 68, 0.1)",
+        border: "1px solid rgba(239, 68, 68, 0.3)",
+        borderRadius: "0.5rem",
+        color: "#ef4444",
+        fontSize: "0.875rem",
+        marginBottom: "1rem",
+      }}
+    >
+      The sign-in link expired or was already used. Request a new one below.
+    </div>
+  );
+}
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -9,17 +31,12 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Show error from URL params if present
-  const urlParams = new URLSearchParams(window.location.search);
-  const urlError = urlParams.get("error");
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
-    const sb = createClient();
-    const { error: signInError } = await sb.auth.signInWithOtp({
+    const { error: signInError } = await supabase.auth.signInWithOtp({
       email,
       options: {
         emailRedirectTo: `${window.location.origin}/api/auth/callback`,
@@ -72,21 +89,9 @@ export default function LoginPage() {
           Enter your email and we'll send you a magic link.
         </p>
 
-        {urlError && (
-          <div
-            style={{
-              padding: "0.75rem 1rem",
-              backgroundColor: "rgba(239, 68, 68, 0.1)",
-              border: "1px solid rgba(239, 68, 68, 0.3)",
-              borderRadius: "0.5rem",
-              color: "#ef4444",
-              fontSize: "0.875rem",
-              marginBottom: "1rem",
-            }}
-          >
-            The sign-in link expired or was already used. Request a new one below.
-          </div>
-        )}
+        <Suspense fallback={null}>
+          <UrlErrorBanner />
+        </Suspense>
 
         {sent ? (
           <div>

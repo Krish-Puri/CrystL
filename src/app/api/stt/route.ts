@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Call Groq Whisper STT API
+    console.info("[POST /api/stt] request received, model: whisper-large-v3-turbo");
     const groqFormData = new FormData();
     groqFormData.append("file", file, file.name || "audio.webm");
     groqFormData.append("model", "whisper-large-v3-turbo");
@@ -42,8 +43,11 @@ export async function POST(req: NextRequest) {
 
     if (!res.ok) {
       const errText = await res.text();
-      console.error("[POST /api/stt] Groq Whisper error:", res.status, errText);
-      return NextResponse.json({ error: "Transcription service error" }, { status: 500 });
+      console.error(`[POST /api/stt] Groq Whisper error: ${res.status}`, errText);
+      return NextResponse.json(
+        { error: "Transcription service error", detail: errText },
+        { status: 500 }
+      );
     }
 
     const data = await res.json();

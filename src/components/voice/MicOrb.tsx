@@ -3,13 +3,28 @@
 import { motion } from "framer-motion";
 
 interface MicOrbProps {
+  /** Called when the user clicks the orb — opens the panel. */
   onClick: () => void;
+  /**
+   * Called immediately on click, before the panel mounts.
+   * Use this to start STT from the click gesture rather than deferring to a mount effect.
+   */
+  onActivate?: () => void;
   size?: number;
   disabled?: boolean;
   isListening?: boolean;
 }
 
-export function MicOrb({ onClick, size = 88, disabled = false, isListening = false }: MicOrbProps) {
+export function MicOrb({ onClick, onActivate, size = 88, disabled = false, isListening = false }: MicOrbProps) {
+  function handleClick() {
+    console.info("[MicOrb] clicked");
+    if (onActivate) {
+      console.info("[MicOrb] calling onActivate()");
+      onActivate();
+    }
+    onClick();
+  }
+
   return (
     <motion.button
       whileHover={{ scale: disabled ? 1 : 1.05 }}
@@ -22,7 +37,7 @@ export function MicOrb({ onClick, size = 88, disabled = false, isListening = fal
         repeat: Infinity,
         ease: "easeInOut",
       } : { duration: 0.15 }}
-      onClick={disabled ? undefined : onClick}
+      onClick={disabled ? undefined : handleClick}
       disabled={disabled}
       aria-label="Hold to speak"
       className={`

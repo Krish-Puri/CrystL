@@ -18,6 +18,7 @@ import ErrorState from "@/components/ui/ErrorState";
 import { useAppState, useAppDispatch, useConversation } from "@/context/AppContext";
 import { useSession } from "@/hooks/useSession";
 import { useReflectDrawerData } from "@/hooks/useReflectDrawerData";
+import { useSpeechToText } from "@/hooks/useSpeechToText";
 import { trackEvent } from "@/lib/analytics";
 import type { Mood, ConversationMode } from "@/types";
 
@@ -54,9 +55,34 @@ export function CrystLApp() {
     return () => clearInterval(id);
   }, [state.rateLimitedUntil]);
 
-  // ── Voice mode: open RecordingPanel (speech auto-starts inside the panel) ─
+  // ── Voice mode ─
+  // useSpeechToText lives here (not in RecordingPanel) so that startListening()
+  // is available synchronously in the click handler — no stale-ref timing issues.
+  const {
+    isListening,
+    isSupported,
+    error: sttError,
+    startError,
+    startListening,
+    stopListening,
+    syncTranscript,
+    retry,
+  } = useSpeechToText({
+    onResult: (text) => {
+      if (panelDivRef.current && panelDivRef.current.textContent !== text) {
+        panelDivRef.current.textContent = text;
+      }
+    },
+    onEnd: () => {
+      // Timer cleanup is handled inside RecordingPanel
+    },
+  });
 
   function handleMicClick() {
+    console.info("[CrystLApp] MicOrb clicked → opening recording panel, calling startListening()");
+    // startListening is in scope directly — no ref timing issues.
+    // SpeechRecognition instance is created here, synchronously on the click.
+    startListening();
     dispatch({ type: "OPEN_RECORDING" });
   }
 
@@ -264,20 +290,32 @@ export function CrystLApp() {
             {/* Bottom mic area — opens RecordingPanel */}
             {!showModePicker && hasMessages && !state.hasEnded && (
               <div className="flex flex-col items-center gap-2 pt-3 pb-1">
-                <MicOrb onClick={handleMicClick} size={72} />
+                <MicOrb
+                  onClick={handleMicClick}
+                  isListening={isListening}
+                  size={72}
+                />
                 <p className="text-xs text-muted-foreground">Tap to speak</p>
               </div>
             )}
           </div>
         )}
 
-        {/* Recording panel — auto-starts listening on mount */}
+        {/* Recording panel — STT starts when MicOrb is clicked */}
         {showRecording && (
           <RecordingPanel
             onSend={handleSend}
             onTranscriptChange={() => {}}
             onCancel={() => dispatch({ type: "CLOSE_RECORDING" })}
             panelDivRef={panelDivRef}
+            isListening={isListening}
+            isSupported={isSupported}
+            error={sttError}
+            startError={startError}
+            startListening={startListening}
+            stopListening={stopListening}
+            syncTranscript={syncTranscript}
+            retry={retry}
           />
         )}
 

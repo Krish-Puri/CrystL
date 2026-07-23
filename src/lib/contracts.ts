@@ -6,7 +6,11 @@ import { z } from "zod";
 
 // ── Mood normalization ────────────────────────────────────────────────────────
 
-const MoodRaw = z.enum(["calm", "okay", "low", "sad", "overwhelmed", "null", null]);
+const MoodRaw = z.union([
+  z.enum(["calm", "okay", "low", "sad", "overwhelmed"]),
+  z.string(),
+  z.null(),
+]);
 export type MoodRaw = z.infer<typeof MoodRaw>;
 
 export function normalizeMood(v: MoodRaw): "calm" | "okay" | "low" | "sad" | "overwhelmed" {

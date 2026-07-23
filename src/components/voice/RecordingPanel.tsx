@@ -2,13 +2,20 @@
 
 import { useRef, useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
-import { useSpeechToText } from "@/hooks/useSpeechToText";
 
 interface RecordingPanelProps {
   onSend: (text: string) => void;
   onTranscriptChange?: (text: string) => void;
   onCancel: () => void;
   panelDivRef: React.MutableRefObject<HTMLDivElement | null>;
+  isListening: boolean;
+  isSupported: boolean;
+  error: string | null;
+  startError: string | null;
+  startListening: () => void;
+  stopListening: () => void;
+  syncTranscript: (text: string) => void;
+  retry: () => void;
 }
 
 function formatTime(seconds: number) {
@@ -54,7 +61,20 @@ function cleanWhisperText(text: string): string {
   return cleaned.trim();
 }
 
-export function RecordingPanel({ onSend, onTranscriptChange, onCancel, panelDivRef }: RecordingPanelProps) {
+export function RecordingPanel({
+  onSend,
+  onTranscriptChange,
+  onCancel,
+  panelDivRef,
+  isListening,
+  isSupported,
+  error,
+  startError,
+  startListening,
+  stopListening,
+  syncTranscript,
+  retry,
+}: RecordingPanelProps) {
   const divRef = useRef<HTMLDivElement>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -64,42 +84,40 @@ export function RecordingPanel({ onSend, onTranscriptChange, onCancel, panelDivR
     panelDivRef.current = divRef.current;
   }, [panelDivRef]);
 
-  // Speech-to-text
-  const { isListening, isSupported, error, startListening, stopListening, syncTranscript, retry } =
-    useSpeechToText({
-      onResult: (text) => {
-        if (divRef.current && divRef.current.textContent !== text) {
-          divRef.current.textContent = text;
-        }
-      },
-      onEnd: () => {
-        if (timerRef.current) {
-          clearInterval(timerRef.current);
-          timerRef.current = null;
-        }
-      },
-    });
-
-  // Auto-start listening when supported — no hasStartedRef needed with lazy creation
+  // Mount/unmount logging + stop listening on unmount
   useEffect(() => {
-    if (!isSupported) return;
-    startListening();
+    console.info("[RecordingPanel] mounted");
+    return () => {
+      console.info("[RecordingPanel] unmounting");
+      stopListening();
+    };
+  }, [stopListening]);
+
+  // Timer — only runs while actively listening; guarded so it never starts on a stray mount
+  useEffect(() => {
+    if (!isListening) {
+      // Reset elapsed time when not listening so stale seconds never flash on screen
+      setElapsedTime(0);
+      return;
+    }
     timerRef.current = setInterval(() => {
       setElapsedTime((t) => t + 1);
     }, 1000);
     return () => {
-      stopListening();
       if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;
       }
     };
-  }, [isSupported, startListening, stopListening]);
+  }, [isListening]);
 
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [audioError, setAudioError] = useState<string | null>(null);
+  const [volumeLevel, setVolumeLevel] = useState(0); // 0–100
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const animationRef = useRef<number | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
 
   // Start MediaRecorder audio capture in parallel for robust Whisper STT fallback
   useEffect(() => {
@@ -116,7 +134,30 @@ export function RecordingPanel({ onSend, onTranscriptChange, onCancel, panelDivR
     navigator.mediaDevices
       .getUserMedia({ audio: true })
       .then((s) => {
+        console.info("[MediaRecorder] getUserMedia success, stream active");
         stream = s;
+
+        // ── Web Audio API: real-time volume analyser ──────────────────────
+        const audioCtx = new (window.AudioContext || (window as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)();
+        if (audioCtx.state === "suspended") {
+          audioCtx.resume();
+        }
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 256;
+        const source = audioCtx.createMediaStreamSource(s);
+        source.connect(analyser);
+        const dataArr = new Uint8Array(analyser.frequencyBinCount);
+        audioCtxRef.current = audioCtx;
+
+        function updateVolume() {
+          analyser.getByteFrequencyData(dataArr);
+          const avg = dataArr.reduce((a, b) => a + b, 0) / dataArr.length;
+          setVolumeLevel(Math.round((avg / 128) * 100));
+          animationRef.current = requestAnimationFrame(updateVolume);
+        }
+        animationRef.current = requestAnimationFrame(updateVolume);
+        // ────────────────────────────────────────────────────────────────
+
         const mr = new MediaRecorder(s);
         audioChunksRef.current = [];
         mr.ondataavailable = (e) => {
@@ -127,7 +168,7 @@ export function RecordingPanel({ onSend, onTranscriptChange, onCancel, panelDivR
         setAudioError(null);
       })
       .catch((err) => {
-        // Permission denied or unavailable — surface to UI, don't silently swallow
+        console.error(`[MediaRecorder] getUserMedia FAILED: ${err.name} ${err.message}`);
         setAudioError(
           err.name === "NotAllowedError"
             ? "Microphone access denied — please allow mic access in browser settings."
@@ -136,6 +177,8 @@ export function RecordingPanel({ onSend, onTranscriptChange, onCancel, panelDivR
       });
 
     return () => {
+      if (animationRef.current != null) cancelAnimationFrame(animationRef.current);
+      audioCtxRef.current?.close();
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
         mediaRecorderRef.current.stop();
       }
@@ -166,6 +209,7 @@ export function RecordingPanel({ onSend, onTranscriptChange, onCancel, panelDivR
         const formData = new FormData();
         formData.append("file", audioBlob, "recording.webm");
 
+        console.info("[RecordingPanel] POST /api/stt — sending audio for Whisper transcription");
         const res = await fetch("/api/stt", {
           method: "POST",
           body: formData,
@@ -178,6 +222,9 @@ export function RecordingPanel({ onSend, onTranscriptChange, onCancel, panelDivR
             divRef.current.textContent = cleaned;
             syncTranscript(cleaned);
           }
+        } else {
+          const detail = await res.text();
+          console.error(`[RecordingPanel] /api/stt returned ${res.status}:`, detail);
         }
       }
     } catch (e) {
@@ -271,7 +318,7 @@ export function RecordingPanel({ onSend, onTranscriptChange, onCancel, panelDivR
       transition={{ duration: 0.25 }}
       className="flex flex-col items-center justify-center h-full gap-7 px-10 py-16"
     >
-      {/* Pulsing mic */}
+      {/* Pulsing mic + audio visualizer */}
       <div className="relative flex items-center justify-center w-28 h-28">
         {isListening && (
           <div
@@ -298,6 +345,23 @@ export function RecordingPanel({ onSend, onTranscriptChange, onCancel, panelDivR
             <line x1="12" y1="19" x2="12" y2="22" />
             <line x1="8" y1="22" x2="16" y2="22" />
           </svg>
+          {/* 5-bar audio visualizer — animated bars responding to voice volume */}
+          {isListening && (
+            <div className="absolute inset-0 flex items-center justify-center gap-1 pointer-events-none">
+              {[...Array(5)].map((_, i) => (
+                <div
+                  key={i}
+                  className="w-1 rounded-full"
+                  style={{
+                    height: `${4 + ((volumeLevel / 100) * 16) * (i % 2 === 0 ? 1 : 0.7)}px`,
+                    backgroundColor: "var(--on-accent)",
+                    opacity: volumeLevel > i * 20 ? 0.9 : 0.2,
+                    transition: "height 80ms ease-out, opacity 80ms ease-out",
+                  }}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -317,16 +381,18 @@ export function RecordingPanel({ onSend, onTranscriptChange, onCancel, panelDivR
       </p>
 
       {/* Error / Fallback banner */}
-      {(isPermissionDenied || isNetworkError || audioError) && (
+      {(isPermissionDenied || isNetworkError || audioError || startError) && (
         <div className="w-full max-w-md rounded bg-red-500/10 border border-red-500/30 px-4 py-3 text-sm text-center text-red-400 flex flex-col gap-2 items-center">
           <span>
             {isPermissionDenied
               ? "Microphone access blocked — please allow mic access in browser settings."
               : isNetworkError
               ? "Browser speech service unreachable (e.g. Brave blocks Google Speech servers)."
+              : startError
+              ? `Mic failed to start: ${startError}`
               : audioError ?? ""}
           </span>
-          {isNetworkError && !audioError && (
+          {isNetworkError && !audioError && !startError && (
             <button
               onClick={handleTranscribeAudio}
               disabled={isTranscribing}
@@ -348,12 +414,14 @@ export function RecordingPanel({ onSend, onTranscriptChange, onCancel, panelDivR
         suppressContentEditableWarning
         onInput={handleInput}
         onBlur={handleInput}
+        data-placeholder="Listening... Speak now or type your message..."
         className="
           w-full max-w-md min-h-[72px]
           font-voice text-xl leading-relaxed text-center
           outline-none py-1 px-2 rounded
           hover:bg-surface-2 focus:bg-surface-2
           transition-colors cursor-text
+          empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/50
         "
         style={{ fontFamily: "var(--font-voice)" }}
       />
@@ -367,6 +435,8 @@ export function RecordingPanel({ onSend, onTranscriptChange, onCancel, panelDivR
           ? "internet connection required"
           : audioError
           ? "voice unavailable in this browser"
+          : startError
+          ? "mic failed to start"
           : "tap the text to edit before sending"}
       </p>
 

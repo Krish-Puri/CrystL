@@ -66,7 +66,11 @@ export async function POST(req: NextRequest) {
         user_id: userId,
         content: reflectionResult.content,
         theme_slug: reflectionResult.theme_slug,
-        mood: normalizeMood((session.current_mood ?? session.mood_at_start) as string),
+        mood: normalizeMood(
+          (Array.isArray(session.current_mood)
+            ? session.current_mood[0]?.current_mood
+            : session.current_mood) ?? session.mood_at_start
+        ),
         next_step: reflectionResult.next_step,
       })
       .select()
